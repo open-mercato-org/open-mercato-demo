@@ -188,6 +188,8 @@ Plural module id ✅ · FK ids only to `customers` ✅ · org/tenant scoping ✅
   - Without a sender email, it returns the reservation with `ownerMatch: 'unknown'`.
   - `get_details` exposes only the IBAN's last 4 digits.
 - **Injection:** the person tab targets the people-v2 page spot `detail:customers.person:tabs`. The legacy page uses `customers.person.detail:tabs` and is not targeted.
+- **Detail tabs spot:** `ReservationDetail` hosts `detail:reservations.reservation:tabs` (declared in `extension-points.ts`, context contract `reservations.detail.v1`: `{ formId, resourceKind: 'reservations.reservation', resourceId, reservationId, reservation, retryLastMutation }`). Injected tabs render in a tab strip under the refunds section. The strip is hidden when nothing is injected. `tickets` adds its Tickets tab there.
+- **Tickets enricher:** `data/enrichers.ts` registers `reservations.ticket-reservation` for `tickets.ticket` (feature `reservations.view`, batch `enrichMany`, `cacheableOnListHit: false`). It adds `_reservations.reservation` (booking number, destination, hotel, status, departure, customer id and name), or `null` when the ticket has no reservation. `reservations` does not import `tickets`; it only targets the entity id string, so the enricher is inert when `tickets` is disabled.
 - **Dialogs:** `CrudForm` handles Enter but not Cmd/Ctrl+Enter, so each dialog adds its own handler.
 - **Migration:** includes `buildEncryptionMapBackfillSql` for existing tenants.
 - **DI:** services are registered with `.proxy()`, because the container runs in CLASSIC injection mode.
@@ -197,3 +199,4 @@ Plural module id ✅ · FK ids only to `customers` ✅ · org/tenant scoping ✅
 - **2026-10-12** — English content, EUR demo amounts.
 - **2026-10-12** — Email lookup via the module's own hash; no `customers` change.
 - **2026-10-12** — Implementation notes from the Phase 1a build.
+- **2026-10-12** — `detail:reservations.reservation:tabs` spot and the tickets response enricher.

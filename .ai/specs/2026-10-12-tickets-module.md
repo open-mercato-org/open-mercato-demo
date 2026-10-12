@@ -172,10 +172,9 @@ Plural id ✅ · FK ids only (customers, reservations, KB keys, inbox_ops) ✅ �
 - **Simulate:** the "Simulate inbound email" button is the module's own widget on `data-table:tickets.ticket:toolbar` (no presets; `triage_agents` adds presets).
 - **Saved filters** (Mine, Needs manual review, Urgent) are preset buttons next to the DataTable views.
 - **CRUD list cache:** with `ENABLE_CRUD_API_CACHE`, system-context commands whose `buildLog` returns no resource kind left lists stale, so every ticket write invalidates the list cache explicitly.
-- **Not built yet:**
-  - the reservation tab widget (after reservations and tickets are integrated)
-  - the KB taxonomy select: category and topic keys are free-text for now
-  - reservation labels resolved via `tryResolve` (the UI shows the snapshot or the id)
+- **Reservation tab:** `widgets/injection/reservation-tickets-tab` targets `detail:reservations.reservation:tabs` (a spot that `reservations` now hosts) and lists tickets by `reservationId` through `GET /api/tickets/tickets`. It shares `components/LinkedTicketsList.tsx` with the person tab.
+- **KB taxonomy select:** the classify dialog loads `GET /api/knowledge_articles/taxonomy` and renders cascading category → subcategory → topic selects. `categoryPathSnapshot` is built from the selected labels (`Category / Subcategory / Topic`). A key that is not in the taxonomy stays selectable and keeps the old snapshot. When the endpoint fails (module disabled, 403, 404) or returns no categories, the dialog falls back to the free-text key inputs.
+- **Reservation and customer labels:** the `reservations` module owns a response enricher (`reservations.ticket-reservation`, feature `reservations.view`) that adds `_reservations.reservation = { id, bookingNumber, destination, hotelName, status, departureDate, customerPersonId, customerName }` to tickets responses. This replaces the planned `tryResolve`. The queue and the classification panel show the booking number and destination, and the panel links to the reservation. Without the enrichment (module disabled or no ACL), the UI shows the snapshot or the id with no link. The customer name still comes from `GET /api/customers/people` (`usePeopleLabels`). The reservation's `customerName` is used only when the people lookup has no label.
 - **Existing tenants** need `yarn mercato auth sync-role-acls` for the new features.
 
 ## Changelog
@@ -183,3 +182,4 @@ Plural id ✅ · FK ids only (customers, reservations, KB keys, inbox_ops) ✅ �
 - **2026-10-12** — English labels and i18n.
 - **2026-10-12** — Intake loads `InboxEmail` by `emailId`; delivery via `sendEmail` + the module's own `simulated` mode.
 - **2026-10-12** — Implementation notes from the Phase 1c build.
+- **2026-10-12** — Reservation tickets tab, KB taxonomy selects in the classify dialog, reservation labels via the `reservations` enricher.
