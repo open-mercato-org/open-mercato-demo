@@ -97,6 +97,20 @@ export type CompileGeneratedOptions = {
   bundleLocalModules?: boolean
 }
 
+/**
+ * Whether a compiled registry artifact must be rebuilt: it is missing, or older than
+ * the generated registry, or — for a bundle that inlines app-module sources — older
+ * than any app-local entry artifact. Those entry artifacts are recompiled (with their
+ * own dependency hashing) whenever an app module or one of its imports changes, so
+ * comparing against them keeps an inlined bundle from pinning stale app code.
+ */
+export function isGeneratedArtifactStale(jsPath: string, tsPath: string, dependencyArtifacts: readonly string[] = []): boolean {
+  if (!fs.existsSync(jsPath)) return true
+  const builtAt = fs.statSync(jsPath).mtimeMs
+  if (fs.statSync(tsPath).mtimeMs > builtAt) return true
+  return dependencyArtifacts.some((artifact) => fs.existsSync(artifact) && fs.statSync(artifact).mtimeMs > builtAt)
+}
+
 export async function compileAndImportGenerated(
   tsPath: string,
   options: CompileGeneratedOptions = {},
@@ -121,9 +135,7 @@ export async function compileAndImportGenerated(
   // last regenerated.
   const appLocalArtifacts = await compileAppLocalModuleEntries(tsSource, appRoot, runtime)
 
-  const jsExists = fs.existsSync(jsPath)
-  const needsCompile =
-    !jsExists || fs.statSync(tsPath).mtimeMs > fs.statSync(jsPath).mtimeMs
+  const needsCompile = isGeneratedArtifactStale(jsPath, tsPath, bundle ? [...appLocalArtifacts.values()] : [])
 
   if (needsCompile) {
     const esbuild = await import('esbuild')

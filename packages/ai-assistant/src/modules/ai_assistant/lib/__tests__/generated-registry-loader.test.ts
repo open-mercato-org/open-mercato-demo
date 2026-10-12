@@ -12,6 +12,7 @@ import {
   ensureApiRouteManifestsRegistered,
   resolveAppAliasPath,
   createAppAliasPlugin,
+  isGeneratedArtifactStale,
 } from '../generated-registry-loader'
 
 function makeTempDir(): string {
@@ -490,5 +491,38 @@ describe('ensureApiRouteManifestsRegistered', () => {
 
     getSpy.mockRestore()
     registerSpy.mockRestore()
+  })
+})
+
+describe('isGeneratedArtifactStale', () => {
+  function touch(file: string, mtimeSeconds: number): void {
+    fs.writeFileSync(file, '')
+    fs.utimesSync(file, mtimeSeconds, mtimeSeconds)
+  }
+
+  it('rebuilds a missing artifact or one older than the registry', () => {
+    const dir = makeTempDir()
+    const tsPath = path.join(dir, 'ai-agents.generated.ts')
+    const jsPath = path.join(dir, 'ai-agents.generated.bundled.mjs')
+    touch(tsPath, 1000)
+    expect(isGeneratedArtifactStale(jsPath, tsPath)).toBe(true)
+    touch(jsPath, 2000)
+    expect(isGeneratedArtifactStale(jsPath, tsPath)).toBe(false)
+    touch(tsPath, 3000)
+    expect(isGeneratedArtifactStale(jsPath, tsPath)).toBe(true)
+  })
+
+  it('rebuilds a bundle once an inlined app-module entry was recompiled after it', () => {
+    const dir = makeTempDir()
+    const tsPath = path.join(dir, 'ai-agents.generated.ts')
+    const jsPath = path.join(dir, 'ai-agents.generated.bundled.mjs')
+    const entry = path.join(dir, 'src-modules-demo-ai-agents.mjs')
+    touch(tsPath, 1000)
+    touch(jsPath, 2000)
+    touch(entry, 1500)
+    expect(isGeneratedArtifactStale(jsPath, tsPath, [entry])).toBe(false)
+    touch(entry, 2500)
+    expect(isGeneratedArtifactStale(jsPath, tsPath, [entry])).toBe(true)
+    expect(isGeneratedArtifactStale(jsPath, tsPath, [path.join(dir, 'missing.mjs')])).toBe(false)
   })
 })
