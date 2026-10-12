@@ -203,7 +203,6 @@ function useArticleFields(t: Translate, categoryOptions: Array<{ value: string; 
       label: t('knowledge_articles.form.fields.priorityFloor'),
       type: 'select',
       options: [
-        { value: NONE_VALUE, label: t('knowledge_articles.priority.none') },
         { value: 'low', label: t('knowledge_articles.priority.low') },
         { value: 'normal', label: t('knowledge_articles.priority.normal') },
         { value: 'high', label: t('knowledge_articles.priority.high') },

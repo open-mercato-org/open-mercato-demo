@@ -52,10 +52,7 @@ function useCategoryFields(t: Translate, parents: CategoryRow[]): CrudField[] {
       id: 'parentId',
       label: t('knowledge_articles.categoryForm.fields.parent'),
       type: 'select',
-      options: [
-        { value: NO_PARENT, label: t('knowledge_articles.categoryForm.fields.noParent') },
-        ...parents.map((parent) => ({ value: parent.id, label: parent.name })),
-      ],
+      options: parents.map((parent) => ({ value: parent.id, label: parent.name })),
       visibleWhen: { field: 'level', equals: 'subcategory' },
     },
     { id: 'description', label: t('knowledge_articles.categoryForm.fields.description'), type: 'textarea', rows: 3 },
