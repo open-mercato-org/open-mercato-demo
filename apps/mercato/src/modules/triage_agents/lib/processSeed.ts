@@ -60,8 +60,8 @@ export const TRIAGE_PROCESS_INPUT_SCHEMA = {
   type: 'object',
   required: ['ticketId'],
   properties: {
-    ticketId: { type: 'string', title: 'Ticket ID' },
-    ticketNumber: { type: 'string', title: 'Ticket number' },
+    ticketId: { type: 'string' },
+    ticketNumber: { type: 'string' },
   },
 }
 

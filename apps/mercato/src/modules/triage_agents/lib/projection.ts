@@ -165,6 +165,26 @@ async function resolveProcessExecutionId(em: EntityManager, scope: TriageScope, 
   }
 }
 
+async function loadRunIds(em: EntityManager, scope: TriageScope, workflowInstanceId: string | null): Promise<TriageRunIds | null> {
+  if (!workflowInstanceId) return null
+  try {
+    const rows = (await em.getConnection().execute(
+      'SELECT id, agent_id FROM agent_runs WHERE workflow_instance_id = ? AND tenant_id = ? AND organization_id = ? ORDER BY created_at ASC',
+      [workflowInstanceId, scope.tenantId, scope.organizationId],
+    )) as Array<{ id?: unknown; agent_id?: unknown }>
+    let runIds: TriageRunIds | null = null
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (typeof row.id !== 'string' || typeof row.agent_id !== 'string') continue
+      runIds = mergeRunIds(runIds, row.agent_id, row.id)
+    }
+    return runIds
+  } catch (err) {
+    logger.warn('Agent run lookup unavailable', { error: err instanceof Error ? err.message : String(err) })
+    reportError(err, { module: 'triage_agents', code: 'triage_agents.run_lookup_failed' })
+    return null
+  }
+}
+
 export async function findTriage(em: EntityManager, scope: TriageScope, ticketId: string): Promise<TicketTriage | null> {
   return em.findOne(TicketTriage, { ticketId, tenantId: scope.tenantId, organizationId: scope.organizationId })
 }
@@ -296,6 +316,8 @@ export async function recordTriageStage(
   }
   const confidence = readNumber(args.classification?.confidence) ?? readNumber(args.identification?.confidence)
   if (confidence !== null) row.confidence = confidence.toFixed(4)
+  const runIds = await loadRunIds(em, scope, workflowInstanceId)
+  if (runIds) row.runIds = { ...(row.runIds ?? {}), ...runIds }
   await em.flush()
   return {
     ticketId: row.ticketId,
@@ -332,6 +354,7 @@ export function mergeRunIds(current: TriageRunIds | null | undefined, agentId: s
 }
 
 export type TriageView = {
+  ticketId: string
   aiMode: TriageAiMode | null
   stage: TriageStage
   reason: string | null
@@ -357,6 +380,7 @@ export type TriageView = {
 
 export function toTriageView(row: TicketTriage): TriageView {
   return {
+    ticketId: row.ticketId,
     aiMode: row.aiMode ?? null,
     stage: row.stage,
     reason: row.reason ?? null,
