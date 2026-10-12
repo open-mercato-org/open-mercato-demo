@@ -4,6 +4,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -331,6 +332,21 @@ export async function emitTicketCrud(
     events: ticketCrudEvents,
     indexer: ticketCrudIndexer,
   })
+  await invalidateTicketCache(ctx, ticket, action)
+}
+
+async function invalidateTicketCache(
+  ctx: CommandRuntimeContext,
+  ticket: Ticket,
+  action: 'created' | 'updated' | 'deleted',
+): Promise<void> {
+  await invalidateCrudCache(
+    ctx.container,
+    TICKET_RESOURCE_KIND,
+    ticketIdentifiers(ticket),
+    ticket.tenantId,
+    `${TICKET_RESOURCE_KIND}.${action}`,
+  )
 }
 
 export async function emitTicketUndoCrud(
@@ -350,6 +366,7 @@ export async function emitTicketUndoCrud(
     events: ticketCrudEvents,
     indexer: ticketCrudIndexer,
   })
+  await invalidateTicketCache(ctx, ticket, action)
 }
 
 export function buildTicketLog(
