@@ -39,6 +39,7 @@
   "reservations.detail.sections.overview": "Overview",
   "reservations.detail.sections.payments": "Payments",
   "reservations.detail.sections.refunds": "Refunds",
+  "reservations.detail.tabs.label": "Related records",
   "reservations.errors.bookingNumberTaken": "A reservation with this booking number already exists.",
   "reservations.errors.currencyMismatch": "The currency must match the reservation currency.",
   "reservations.errors.deleteFailed": "Failed to delete reservation",

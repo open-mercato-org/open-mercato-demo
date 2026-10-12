@@ -15,8 +15,16 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { REFUND_TRANSITIONS, type RefundStatus, type RefundTransitionTarget } from '../data/constants'
+import extensionPoints from '../extension-points'
+import {
+  REFUND_TRANSITIONS,
+  RESERVATION_RESOURCE_KIND,
+  type RefundStatus,
+  type RefundTransitionTarget,
+} from '../data/constants'
 import {
   BalanceChip,
   DepartureBadge,
@@ -94,6 +102,37 @@ export function ReservationDetail({ id }: { id: string }) {
     contextId: CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+
+  const injectionContext = React.useMemo(() => ({
+    formId: CONTEXT_ID,
+    resourceKind: RESERVATION_RESOURCE_KIND,
+    resourceId: id,
+    reservationId: id,
+    reservation: state?.reservation ?? null,
+    retryLastMutation,
+  }), [id, retryLastMutation, state?.reservation])
+
+  const { widgets: tabWidgets } = useInjectionWidgets(extensionPoints.hosts.reservationTabs.spotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+
+  const injectedTabs = React.useMemo(
+    () => (tabWidgets ?? [])
+      .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
+      .map((widget) => ({
+        id: widget.placement?.groupId ?? widget.widgetId,
+        label: widget.placement?.groupLabel
+          ? t(widget.placement.groupLabel, widget.placement.groupLabel)
+          : widget.module.metadata.title ?? widget.widgetId,
+        priority: typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0,
+        widget,
+      }))
+      .sort((left, right) => right.priority - left.priority),
+    [t, tabWidgets],
+  )
+  const [activeTab, setActiveTab] = React.useState<string>('')
+  const resolvedActiveTab = injectedTabs.some((tab) => tab.id === activeTab) ? activeTab : injectedTabs[0]?.id ?? ''
 
   const load = React.useCallback(async () => {
     setError(null)
@@ -340,6 +379,23 @@ export function ReservationDetail({ id }: { id: string }) {
           </ul>
         )}
       </Section>
+
+      {injectedTabs.length > 0 ? (
+        <section className="rounded-lg border border-border bg-card p-4" data-testid="reservation-injected-tabs">
+          <Tabs value={resolvedActiveTab} onValueChange={setActiveTab} variant="underline">
+            <TabsList aria-label={t('reservations.detail.tabs.label', 'Related records')}>
+              {injectedTabs.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+              ))}
+            </TabsList>
+            {injectedTabs.map((tab) => (
+              <TabsContent key={tab.id} value={tab.id} className="pt-4">
+                <tab.widget.module.Widget context={injectionContext} data={reservation} />
+              </TabsContent>
+            ))}
+          </Tabs>
+        </section>
+      ) : null}
 
       <RefundRequestDialog
         open={refundOpen}
