@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+import { withScriptedLlmContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/scripted-context'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
@@ -18,6 +19,7 @@ import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { withRunContext } from './runContext'
+import { canonicalInputKey } from '../eval/canonicalInputKey'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
@@ -390,7 +392,7 @@ export class NativeAgentRunner {
       // inherits the eval tag instead of being recorded as production traffic.
       const modelExecution = withRunContext(runId, () =>
         runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await runAiAgentObject({
+          const objectResult = await withScriptedLlmContext({ agentId, inputKey: canonicalInputKey(input) }, () => runAiAgentObject({
             agentId,
             input: typeof input === 'string' ? input : JSON.stringify(input),
             authContext,
@@ -403,7 +405,7 @@ export class NativeAgentRunner {
             // Writes never execute directly (read-only policy + proposal → effector).
             enableTools: true,
             ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
-          })
+          }))
           // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
           if (objectResult.mode === 'stream') {
             return await objectResult.object
