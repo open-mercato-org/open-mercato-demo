@@ -279,6 +279,8 @@ export async function recordTriageStage(
   }
   if (args.disposition !== undefined) row.disposition = args.disposition
   if (args.draftState !== undefined && args.draftState !== null) row.draftState = args.draftState
+  const effectsDraftState = args.effects ? draftStateFromEffects(args.effects) : null
+  if (effectsDraftState) row.draftState = effectsDraftState
   if (args.proposalId !== undefined) row.proposalId = args.proposalId
   const identificationUncertainty = collectUncertainty('identifier', args.identification?.uncertainty)
   const classificationUncertainty = collectUncertainty('classifier', args.classification?.uncertainty)
@@ -303,6 +305,14 @@ export async function recordTriageStage(
     reason: row.reason ?? null,
     attempt: row.attempt,
   }
+}
+
+export function draftStateFromEffects(effects: unknown): TriageDraftState | null {
+  const record = parseMaybeJsonRecord(effects)
+  const results = readArray(record?.results).filter(isRecord)
+  const reply = results.find((entry) => entry.type === 'tickets.reply.send')
+  if (!reply) return null
+  return reply.status === 'ok' ? 'sent' : 'prepared'
 }
 
 export function noProposalFlag(advice: unknown): { reasonCode: string; reason: string } {

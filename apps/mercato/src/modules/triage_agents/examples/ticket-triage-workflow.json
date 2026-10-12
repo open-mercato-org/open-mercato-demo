@@ -1,0 +1,665 @@
+{
+  "workflowId": "triage_agents_ticket_triage_v1",
+  "workflowName": "Ticket triage (AI)",
+  "description": "AI triage of a new helpdesk ticket: identify the customer and reservation, classify the ticket against the knowledge base, compute priority and route deterministically, auto-apply the (undoable) classification, then either flag the ticket for manual review or let the resolution advisor propose KB-grounded actions that a consultant approves, edits or rejects. Approved actions run through agent_orchestrator.execute_approved_proposal; every failure flags the ticket for manual review with a reason code.",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Agents",
+    "tags": ["agent", "tickets", "triage", "demo"],
+    "icon": "inbox"
+  },
+  "definition": {
+    "contextSchema": {
+      "input": {
+        "fields": [
+          { "name": "ticketId", "type": "text", "label": "Ticket ID", "required": true },
+          { "name": "ticketNumber", "type": "text", "label": "Ticket number" }
+        ]
+      }
+    },
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Ticket created",
+        "stepType": "START",
+        "description": "A new ticket (tickets.ticket.created) or a manual re-run enters triage."
+      },
+      {
+        "stepId": "identify",
+        "stepName": "Identify customer and reservation",
+        "stepType": "AUTOMATED",
+        "description": "triage_agents.context_identifier reads the ticket, the CRM and the reservations and returns match levels with evidence.",
+        "activities": [
+          {
+            "activityId": "invoke_context_identifier",
+            "activityName": "Identify context with AI",
+            "activityType": "INVOKE_AGENT",
+            "retryPolicy": { "maxAttempts": 2, "initialIntervalMs": 2000, "backoffCoefficient": 2, "maxIntervalMs": 10000 },
+            "config": {
+              "agentId": "triage_agents.context_identifier",
+              "input": { "ticketId": "{{context.ticketId}}" },
+              "onResult": { "alwaysAsk": true },
+              "outputMapping": { "identification": "data" }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "classify",
+        "stepName": "Classify against the knowledge base",
+        "stepType": "AUTOMATED",
+        "description": "triage_agents.classifier picks the KB topic, writes the summary and the urgency signal.",
+        "activities": [
+          {
+            "activityId": "invoke_classifier",
+            "activityName": "Classify with AI",
+            "activityType": "INVOKE_AGENT",
+            "retryPolicy": { "maxAttempts": 2, "initialIntervalMs": 2000, "backoffCoefficient": 2, "maxIntervalMs": 10000 },
+            "config": {
+              "agentId": "triage_agents.classifier",
+              "input": {
+                "ticketId": "{{context.ticketId}}",
+                "identification": "{{context.identification}}"
+              },
+              "onResult": { "alwaysAsk": true },
+              "outputMapping": { "classification": "data" }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "policy",
+        "stepName": "Priority and route",
+        "stepType": "AUTOMATED",
+        "description": "Deterministic policies have computed the priority (departure date, KB priority floor, urgency signal) and the route (identification match, KB automation level, confidence)."
+      },
+      {
+        "stepId": "classified",
+        "stepName": "Classification applied",
+        "stepType": "AUTOMATED",
+        "description": "The classification, priority and summary are on the ticket (tickets.ticket.classify, source workflow, undoable)."
+      },
+      {
+        "stepId": "manual_review",
+        "stepName": "Manual review",
+        "stepType": "AUTOMATED",
+        "description": "The ticket is flagged for a consultant with the route reason (and moved to the article's target queue when it names one)."
+      },
+      {
+        "stepId": "resolve",
+        "stepName": "Propose resolution",
+        "stepType": "AUTOMATED",
+        "description": "triage_agents.resolution_advisor follows the KB article, runs its checks and proposes the recommended actions with a reply draft. Always reviewed by a consultant on the ticket page.",
+        "signalConfig": { "signalName": "agent_orchestrator.proposal.ready" },
+        "activities": [
+          {
+            "activityId": "invoke_resolution_advisor",
+            "activityName": "Propose resolution with AI",
+            "activityType": "INVOKE_AGENT",
+            "retryPolicy": { "maxAttempts": 2, "initialIntervalMs": 2000, "backoffCoefficient": 2, "maxIntervalMs": 10000 },
+            "config": {
+              "agentId": "triage_agents.resolution_advisor",
+              "input": {
+                "ticketId": "{{context.ticketId}}",
+                "ticketNumber": "{{context.ticketNumber}}",
+                "identification": "{{context.identification}}",
+                "classification": "{{context.classification}}"
+              },
+              "onResult": { "alwaysAsk": true },
+              "subject": {
+                "subjectType": "tickets:ticket",
+                "subjectId": "{{context.ticketId}}",
+                "subjectLabel": "{{context.ticketNumber}}"
+              },
+              "review": {
+                "assignedToRoles": ["employee"],
+                "priority": "high",
+                "deadline": { "duration": "PT4H" }
+              },
+              "outputMapping": { "advice": "proposalPayload", "advisorProposalId": "proposalId" }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "no_proposal",
+        "stepName": "No proposal",
+        "stepType": "AUTOMATED",
+        "description": "The advisor found a failed required check (e.g. payment not visible) and proposed nothing."
+      },
+      {
+        "stepId": "rejected",
+        "stepName": "Proposal rejected",
+        "stepType": "AUTOMATED",
+        "description": "The consultant rejected the proposal; nothing was sent."
+      },
+      {
+        "stepId": "apply_proposal",
+        "stepName": "Apply approved proposal",
+        "stepType": "AUTOMATED",
+        "description": "The consultant approved (or edited) the proposal."
+      },
+      {
+        "stepId": "effected",
+        "stepName": "Actions executed",
+        "stepType": "AUTOMATED",
+        "description": "The selected option's actions ran in order (refund request, ticket transition, reply)."
+      },
+      {
+        "stepId": "effector_failed",
+        "stepName": "Action failed",
+        "stepType": "AUTOMATED",
+        "description": "An approved action failed; the remaining actions were skipped."
+      },
+      {
+        "stepId": "ai_failed",
+        "stepName": "AI failed",
+        "stepType": "AUTOMATED",
+        "description": "An agent run failed (error or invalid output)."
+      },
+      {
+        "stepId": "grounding_failed",
+        "stepName": "Guardrail blocked",
+        "stepType": "AUTOMATED",
+        "description": "A runtime guardrail blocked the agent output."
+      },
+      {
+        "stepId": "end",
+        "stepName": "Triaged",
+        "stepType": "END",
+        "description": "Triage finished."
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "t_start",
+        "transitionName": "Start triage",
+        "fromStepId": "start",
+        "toStepId": "identify",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "stage_identifying",
+            "activityName": "stage_identifying",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": { "ticketId": "{{context.ticketId}}", "ticketNumber": "{{context.ticketNumber}}", "stage": "identifying", "startAttempt": true }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_identified",
+        "transitionName": "Identified",
+        "fromStepId": "identify",
+        "toStepId": "classify",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "researcher",
+        "activities": [
+          {
+            "activityId": "stage_classifying",
+            "activityName": "stage_classifying",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "ticketNumber": "{{context.ticketNumber}}",
+                "stage": "classifying",
+                "identification": "{{context.identification}}"
+              }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_identify_error", "transitionName": "Identifier failed", "fromStepId": "identify", "toStepId": "ai_failed", "trigger": "auto", "priority": 90, "kind": "outcome", "outcomeKind": "error" },
+      { "transitionId": "t_identify_blocked", "transitionName": "Identifier blocked", "fromStepId": "identify", "toStepId": "grounding_failed", "trigger": "auto", "priority": 80, "kind": "outcome", "outcomeKind": "guardrailBlocked" },
+      {
+        "transitionId": "t_classified",
+        "transitionName": "Classified",
+        "fromStepId": "classify",
+        "toStepId": "policy",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "researcher",
+        "activities": [
+          {
+            "activityId": "triage_priority",
+            "activityName": "triage_priority",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.compute_priority",
+              "args": { "identification": "{{context.identification}}", "classification": "{{context.classification}}" }
+            }
+          },
+          {
+            "activityId": "triage_route",
+            "activityName": "triage_route",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.route",
+              "args": { "identification": "{{context.identification}}", "classification": "{{context.classification}}" }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_classify_error", "transitionName": "Classifier failed", "fromStepId": "classify", "toStepId": "ai_failed", "trigger": "auto", "priority": 90, "kind": "outcome", "outcomeKind": "error" },
+      { "transitionId": "t_classify_blocked", "transitionName": "Classifier blocked", "fromStepId": "classify", "toStepId": "grounding_failed", "trigger": "auto", "priority": 80, "kind": "outcome", "outcomeKind": "guardrailBlocked" },
+      {
+        "transitionId": "t_apply_classification",
+        "transitionName": "Apply classification",
+        "fromStepId": "policy",
+        "toStepId": "classified",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "apply_classification",
+            "activityName": "apply_classification",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.classify",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "customerPersonId": "{{context.triage_route.result.classify.customerPersonId}}",
+                "reservationId": "{{context.triage_route.result.classify.reservationId}}",
+                "reservationNumberSnapshot": "{{context.triage_route.result.classify.reservationNumberSnapshot}}",
+                "categoryKey": "{{context.triage_route.result.classify.categoryKey}}",
+                "subcategoryKey": "{{context.triage_route.result.classify.subcategoryKey}}",
+                "topicKey": "{{context.triage_route.result.classify.topicKey}}",
+                "categoryPathSnapshot": "{{context.triage_route.result.classify.categoryPathSnapshot}}",
+                "summary": "{{context.triage_route.result.classify.summary}}",
+                "priority": "{{context.triage_priority.result.priority}}",
+                "priorityReason": "{{context.triage_priority.result.priorityReason}}",
+                "source": "workflow"
+              }
+            }
+          },
+          {
+            "activityId": "stage_classified",
+            "activityName": "stage_classified",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "ticketNumber": "{{context.ticketNumber}}",
+                "stage": "classifying",
+                "identification": "{{context.identification}}",
+                "classification": "{{context.classification}}",
+                "priority": "{{context.triage_priority.result}}",
+                "route": "{{context.triage_route.result}}"
+              }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_policy_error", "transitionName": "Applying the classification failed", "fromStepId": "policy", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_start_error", "transitionName": "Start failed", "fromStepId": "start", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_identify_route_error", "transitionName": "Recording the identification failed", "fromStepId": "identify", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_classify_route_error", "transitionName": "Priority or route failed", "fromStepId": "classify", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_classified_error", "transitionName": "Flagging failed", "fromStepId": "classified", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_resolve_route_error", "transitionName": "Recording the advice failed", "fromStepId": "resolve", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      { "transitionId": "t_no_proposal_error", "transitionName": "Flagging failed", "fromStepId": "no_proposal", "toStepId": "ai_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      {
+        "transitionId": "t_route_manual_queue",
+        "transitionName": "Manual review (target queue)",
+        "fromStepId": "classified",
+        "toStepId": "manual_review",
+        "trigger": "auto",
+        "priority": 100,
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            { "field": "triage_route.result.route", "operator": "=", "value": "manual" },
+            { "field": "triage_route.result.hasTargetQueue", "operator": "=", "value": true }
+          ]
+        },
+        "activities": [
+          {
+            "activityId": "flag_route_manual_queue",
+            "activityName": "flag_route_manual_queue",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "{{context.triage_route.result.reasonCode}}",
+                "reason": "{{context.triage_route.result.reason}}",
+                "targetQueueKey": "{{context.triage_route.result.targetQueueKey}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_route_manual",
+        "transitionName": "Manual review",
+        "fromStepId": "classified",
+        "toStepId": "manual_review",
+        "trigger": "auto",
+        "priority": 90,
+        "condition": { "field": "triage_route.result.route", "operator": "=", "value": "manual" },
+        "activities": [
+          {
+            "activityId": "flag_route_manual",
+            "activityName": "flag_route_manual",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "{{context.triage_route.result.reasonCode}}",
+                "reason": "{{context.triage_route.result.reason}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_route_assisted",
+        "transitionName": "Assisted",
+        "fromStepId": "classified",
+        "toStepId": "resolve",
+        "trigger": "auto",
+        "priority": 0
+      },
+      {
+        "transitionId": "t_manual_done",
+        "transitionName": "Manual review recorded",
+        "fromStepId": "manual_review",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "stage_manual_done",
+            "activityName": "stage_manual_done",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": { "ticketId": "{{context.ticketId}}", "stage": "done", "aiMode": "manual_review", "route": "{{context.triage_route.result}}" }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_resolve_approved", "transitionName": "Approved", "fromStepId": "resolve", "toStepId": "apply_proposal", "trigger": "auto", "priority": 100, "kind": "outcome", "outcomeKind": "approved" },
+      { "transitionId": "t_resolve_rejected", "transitionName": "Rejected", "fromStepId": "resolve", "toStepId": "rejected", "trigger": "auto", "priority": 95, "kind": "outcome", "outcomeKind": "rejected" },
+      {
+        "transitionId": "t_resolve_none",
+        "transitionName": "Nothing proposed",
+        "fromStepId": "resolve",
+        "toStepId": "no_proposal",
+        "trigger": "auto",
+        "priority": 90,
+        "kind": "outcome",
+        "outcomeKind": "researcher",
+        "activities": [
+          {
+            "activityId": "advisor_outcome",
+            "activityName": "advisor_outcome",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": { "ticketId": "{{context.ticketId}}", "stage": "done", "aiMode": "manual_review", "advice": "{{context.advice}}", "draftState": "none" }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_resolve_error", "transitionName": "Advisor failed", "fromStepId": "resolve", "toStepId": "ai_failed", "trigger": "auto", "priority": 80, "kind": "outcome", "outcomeKind": "error" },
+      { "transitionId": "t_resolve_blocked", "transitionName": "Advisor blocked", "fromStepId": "resolve", "toStepId": "grounding_failed", "trigger": "auto", "priority": 70, "kind": "outcome", "outcomeKind": "guardrailBlocked" },
+      {
+        "transitionId": "t_no_proposal_flag",
+        "transitionName": "Flag for manual review",
+        "fromStepId": "no_proposal",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_no_proposal",
+            "activityName": "flag_no_proposal",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "{{context.advisor_outcome.result.flag.reasonCode}}",
+                "reason": "{{context.advisor_outcome.result.flag.reason}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_rejected_flag",
+        "transitionName": "Flag rejected proposal",
+        "fromStepId": "rejected",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_rejected",
+            "activityName": "flag_rejected",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "proposal_rejected",
+                "reason": "The consultant rejected the AI proposal; nothing was sent to the customer."
+              }
+            }
+          },
+          {
+            "activityId": "stage_rejected",
+            "activityName": "stage_rejected",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "done",
+                "aiMode": "manual_review",
+                "reasonCode": "proposal_rejected",
+                "reason": "The consultant rejected the AI proposal; nothing was sent to the customer.",
+                "disposition": "rejected",
+                "draftState": "rejected",
+                "proposalId": "{{context.proposalId}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_execute_proposal",
+        "transitionName": "Execute approved actions",
+        "fromStepId": "apply_proposal",
+        "toStepId": "effected",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "stage_applying",
+            "activityName": "stage_applying",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "applying",
+                "disposition": "{{context.disposition}}",
+                "proposalId": "{{context.proposalId}}"
+              }
+            }
+          },
+          {
+            "activityId": "triage_effects",
+            "activityName": "triage_effects",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "agent_orchestrator.execute_approved_proposal",
+              "args": { "proposalId": "{{context.proposalId}}", "stopOnFailure": true }
+            }
+          }
+        ]
+      },
+      { "transitionId": "t_execute_error", "transitionName": "Execution could not start", "fromStepId": "apply_proposal", "toStepId": "effector_failed", "trigger": "auto", "priority": 0, "kind": "error" },
+      {
+        "transitionId": "t_effects_failed",
+        "transitionName": "An action failed",
+        "fromStepId": "effected",
+        "toStepId": "effector_failed",
+        "trigger": "auto",
+        "priority": 100,
+        "condition": { "field": "triage_effects.result.ok", "operator": "=", "value": false }
+      },
+      {
+        "transitionId": "t_effects_done",
+        "transitionName": "Assisted triage done",
+        "fromStepId": "effected",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 0,
+        "activities": [
+          {
+            "activityId": "stage_assisted_done",
+            "activityName": "stage_assisted_done",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "done",
+                "aiMode": "assisted",
+                "effects": "{{context.triage_effects.result}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_effector_failed_flag",
+        "transitionName": "Flag failed action",
+        "fromStepId": "effector_failed",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_effector_failed",
+            "activityName": "flag_effector_failed",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "effector_failed",
+                "reason": "An approved action failed and the remaining actions were skipped; check the triage flow before retrying."
+              }
+            }
+          },
+          {
+            "activityId": "stage_effector_failed",
+            "activityName": "stage_effector_failed",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "failed",
+                "aiMode": "manual_review",
+                "reasonCode": "effector_failed",
+                "reason": "An approved action failed and the remaining actions were skipped; check the triage flow before retrying.",
+                "effects": "{{context.triage_effects.result}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_ai_failed_flag",
+        "transitionName": "Flag AI failure",
+        "fromStepId": "ai_failed",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_ai_failed",
+            "activityName": "flag_ai_failed",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "ai_failed",
+                "reason": "The AI analysis failed; the ticket needs a manual review."
+              }
+            }
+          },
+          {
+            "activityId": "stage_ai_failed",
+            "activityName": "stage_ai_failed",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "failed",
+                "aiMode": "manual_review",
+                "reasonCode": "ai_failed",
+                "reason": "The AI analysis failed; the ticket needs a manual review."
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_grounding_failed_flag",
+        "transitionName": "Flag guardrail block",
+        "fromStepId": "grounding_failed",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_grounding_failed",
+            "activityName": "flag_grounding_failed",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "kb_grounding_failed",
+                "reason": "A guardrail blocked the AI output; the ticket needs a manual review."
+              }
+            }
+          },
+          {
+            "activityId": "stage_grounding_failed",
+            "activityName": "stage_grounding_failed",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "stage": "failed",
+                "aiMode": "manual_review",
+                "reasonCode": "kb_grounding_failed",
+                "reason": "A guardrail blocked the AI output; the ticket needs a manual review."
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

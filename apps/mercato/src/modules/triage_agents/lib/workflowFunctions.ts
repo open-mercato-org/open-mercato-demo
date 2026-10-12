@@ -84,7 +84,16 @@ async function loadTopicArticle(
   return loadArticlePolicy(em, scope, topicKey, null)
 }
 
-export type ComputePriorityFunctionResult = ComputePriorityResult & { topicKey: string | null; priorityFloor: string | null }
+export type ComputePriorityFunctionResult = ComputePriorityResult & { topicKey: string | null; priorityFloor: string | null; reviewPriority: ReviewPriority }
+
+export type ReviewPriority = 'low' | 'medium' | 'high' | 'extreme'
+
+export const REVIEW_PRIORITY: Record<ComputePriorityResult['priority'], ReviewPriority> = {
+  low: 'low',
+  normal: 'medium',
+  high: 'high',
+  urgent: 'extreme',
+}
 
 export function createComputePriorityFunction(container: ResolverLike): TriageWorkflowFunction<ComputePriorityFunctionResult> {
   return async (rawArgs, context) => {
@@ -100,7 +109,7 @@ export function createComputePriorityFunction(container: ResolverLike): TriageWo
     const days = args.daysToDeparture !== undefined ? normalizeDays(args.daysToDeparture) : resolveDaysToDeparture(args.identification)
     const urgencySignal = readString(args.urgencySignal) ?? readString(args.classification?.urgencySignal) ?? 'none'
     const result = computePriority({ daysToDeparture: days, priorityFloor, urgencySignal })
-    return { ...result, topicKey, priorityFloor: priorityFloor ?? null }
+    return { ...result, topicKey, priorityFloor: priorityFloor ?? null, reviewPriority: REVIEW_PRIORITY[result.priority] }
   }
 }
 
