@@ -48,7 +48,7 @@ export function RecordPaymentDialog({
   const t = useT()
   const [formKey, setFormKey] = React.useState(0)
   React.useEffect(() => {
-    if (open) setFormKey((current) => current + 1)
+    if (!open) setFormKey((current) => current + 1)
   }, [open])
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
