@@ -21,6 +21,7 @@ import { TICKET_PRIORITIES, TICKET_STATUSES } from '../data/constants'
 import extensionPoints from '../extension-points'
 import { ManualReviewIndicator, PriorityBadge, TicketStatusBadge } from './TicketBadges'
 import { usePeopleLabels } from './usePeopleLabels'
+import { resolveCustomerLabel, resolveReservationLabel } from '../lib/linkedLabels'
 import { ticketDetailPath, type TicketQueueOption, type TicketRow } from './ticketTypes'
 
 type TicketsResponse = {
@@ -181,7 +182,7 @@ export default function TicketsQueueTable() {
       meta: { priority: 2, truncate: true, maxWidth: '240px' },
       cell: ({ row }) => {
         const ticket = row.original
-        const personLabel = ticket.customerPersonId ? personLabels[ticket.customerPersonId] ?? ticket.customerPersonId : null
+        const personLabel = resolveCustomerLabel(ticket, personLabels)?.label ?? null
         return (
           <div className="min-w-0">
             <div className="truncate">{personLabel ?? ticket.requesterName ?? ticket.requesterEmail ?? '—'}</div>
@@ -197,9 +198,18 @@ export default function TicketsQueueTable() {
       header: t('tickets.queue.columns.reservation', 'Reservation'),
       enableSorting: false,
       meta: { priority: 4, truncate: true, maxWidth: '160px' },
-      cell: ({ row }) => (
-        <span className="text-sm">{row.original.reservationNumberSnapshot ?? row.original.reservationId ?? '—'}</span>
-      ),
+      cell: ({ row }) => {
+        const reservation = resolveReservationLabel(row.original)
+        if (!reservation) return <span className="text-sm">—</span>
+        return (
+          <div className="min-w-0">
+            <div className="truncate text-sm">{reservation.bookingNumber}</div>
+            {reservation.destination ? (
+              <div className="truncate text-xs text-muted-foreground">{reservation.destination}</div>
+            ) : null}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'categoryPathSnapshot',

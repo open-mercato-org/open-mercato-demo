@@ -8,6 +8,7 @@ import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/tim
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ManualReviewIndicator, PriorityBadge } from '../TicketBadges'
 import type { TicketRow } from '../ticketTypes'
+import { resolveCustomerLabel, resolveReservationLabel } from '../../lib/linkedLabels'
 
 export type ClassificationPanelProps = {
   ticket: TicketRow
@@ -40,6 +41,8 @@ export function ClassificationPanel({
   const empty = <span className="text-muted-foreground">—</span>
   const classifiedRelative = formatRelativeTime(ticket.classifiedAt, { locale })
   const classifiedAbsolute = formatDateTime(ticket.classifiedAt)
+  const customer = resolveCustomerLabel(ticket, personLabel && ticket.customerPersonId ? { [ticket.customerPersonId]: personLabel } : {})
+  const reservation = resolveReservationLabel(ticket)
 
   return (
     <section className="space-y-4 rounded-md border border-border bg-card p-4" aria-labelledby="ticket-classification-heading">
@@ -71,14 +74,25 @@ export function ClassificationPanel({
           {ticket.summary ? <span className="whitespace-pre-wrap">{ticket.summary}</span> : empty}
         </Row>
         <Row label={t('tickets.classification.customer', 'Customer')}>
-          {ticket.customerPersonId ? (
-            <Link href={`/backend/customers/people-v2/${encodeURIComponent(ticket.customerPersonId)}`} className="text-primary hover:underline">
-              {personLabel ?? ticket.customerPersonId}
+          {customer ? (
+            <Link href={customer.href} className="text-primary hover:underline" data-testid="ticket-customer-link">
+              {customer.label}
             </Link>
           ) : empty}
         </Row>
         <Row label={t('tickets.classification.reservation', 'Reservation')}>
-          {ticket.reservationNumberSnapshot ?? ticket.reservationId ?? empty}
+          {reservation ? (
+            <div className="space-y-0.5" data-testid="ticket-reservation-label">
+              {reservation.href ? (
+                <Link href={reservation.href} className="text-primary hover:underline">
+                  {reservation.bookingNumber}
+                </Link>
+              ) : (
+                <span>{reservation.bookingNumber}</span>
+              )}
+              {reservation.destination ? <div className="text-xs text-muted-foreground">{reservation.destination}</div> : null}
+            </div>
+          ) : empty}
         </Row>
         <Row label={t('tickets.classification.source', 'Source')}>
           {ticket.classificationSource ? (
