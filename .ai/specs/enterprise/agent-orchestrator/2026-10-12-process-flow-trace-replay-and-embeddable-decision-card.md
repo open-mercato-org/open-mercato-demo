@@ -7,10 +7,14 @@
 ## TLDR
 
 **Key Points:**
-- Three **generic, additive** AO capabilities that the triage demo exposes but AO does not have yet. None of them is ticket-specific.
+- Six **generic, additive** AO capabilities (A–C UI and trace, E–G runtime) that the triage demo exposes but AO does not have yet. None of them is ticket-specific.
   - **A. Embeddable `ProposalDecisionCard`** — the Caseload decision UI as a reusable component, for any module's detail page. It edits long-text action fields properly (a reply draft) and shows a **citations panel** (the sources and steps a proposal is grounded in).
-  - **B. Process Flow Trace** — one ordered, end-to-end view of an execution: trigger → workflow steps → agent runs (spans + tool calls) → disposition (who/what was edited) → effector command results. It can be found by execution id **or by subject** (`subjectType` + `subjectId`).
+  - **B. Process Flow Trace** — one ordered, end-to-end view of an execution: trigger → workflow steps → agent runs (spans + tool calls) → disposition (who/what was edited) → effector command results. It is looked up by execution id. The consumer stores it, e.g. the `triage_agents` projection; an optional `subjectId` filter is additive.
   - **C. Replay** — (1) **Playback**: a client-side step-through of the *recorded* flow (no LLM calls, deterministic); (2) **Re-run execution**: start a new execution with the same trigger context, linked to the original, with a side-by-side outcome diff.
+
+  - **E. Proposal execution** — a workflow function that executes the approved option's actions (today approval executes nothing: `executeProposal` has no production caller).
+  - **F. Evidence envelope** — an additive `evidence` block on proposals, so checks, citations, draft segments and uncertainty survive envelope normalization.
+  - **G. Scripted LLM provider** — a deterministic provider for integration tests and offline demo rehearsals.
 
 **Out of scope:** external runtimes / graph nodes (LangGraph, DeepAgents): explicitly not added (umbrella D5); a graph DSL; replay that re-executes effectors.
 
@@ -26,7 +30,7 @@
 
 - Exported from `@open-mercato/enterprise/modules/agent_orchestrator/components/ProposalDecisionCard`. It wraps the existing `ProposalCard`, `ProposalOptionList`, `ProposalFacts` and `DisposeDialog` logic and uses `apiCall`.
 - Props: `{ proposalId: string, compact?: boolean, onDisposed?: (result) => void, fieldOverrides?: Record<string /* actionType.path */, { widget: 'long_text' | 'money' | 'readonly' | 'masked', labelKey?: string }> }`.
-- **Long text:** an action payload field is rendered as a multi-line editor when (a) `fieldOverrides` says `long_text`, or (b) the agent's result schema marks it with `.describe('format:long_text')`. Edited values are diffed (`deriveActionEdits`) and sent as `dispose{ decision: 'edit', edits }`. The dispose call carries the optimistic lock header and surfaces conflicts via `surfaceRecordConflict`.
+- **Long text:** an action payload field is rendered as a multi-line editor when (a) `fieldOverrides` says `long_text`, or (b) the agent's result schema marks it with `.describe('format:long_text')`. Edited values are re-assembled into the full envelope (`reassembleProposalPayload`, `AO/components/proposalEdit.ts`) and sent as `{ disposition: 'edited', selectedOptionId, payload, reason }` (the dispose API has no `edits` field; approve also requires `selectedOptionId`; edit/reject require `reason`). `deriveActionEdits` only handles flat primitives, so it is extended to string fields flagged `long_text`. The dispose call carries the optimistic lock header and surfaces conflicts via `surfaceRecordConflict`.
 - **Citations panel (generic):** when the proposal payload carries `citations[]` (`{ kind, ref, label?, steps?, href? }`), per-check `step` refs, or `draftSegments[]`, the card renders a "Based on" panel. It lists the sources, the cited steps, checks ✓/✗ with evidence, and highlights `template` segments inside the long-text editor. Source text is resolved through a pluggable `citationResolvers` registry keyed by `kind`; a module registers e.g. `kb` → `knowledge_articles` version endpoint. Unknown kinds render as a plain label + link.
 - Per-option approval stays atomic. Per-action toggles are out of scope: an option is the unit of approval.
 - ACL: renders read-only without `agent_orchestrator.proposals.dispose`.
@@ -35,7 +39,8 @@
 ### B. Process Flow Trace
 
 **API (additive):**
-- `GET /api/agent_orchestrator/executions?subjectType=&subjectId=&limit=` — executions for a subject, newest first (uses the existing `process_instances` subject columns). Feature `agent_orchestrator.trace.view`.
+- `GET /api/agent_orchestrator/runs?workflowInstanceId=` — **new additive filter** (today `/runs` cannot filter by workflow instance; needed by the assembler and the UI).
+- `GET /api/agent_orchestrator/executions?subjectId=` — optional additive filter (`subjectType` already exists).
 - `GET /api/agent_orchestrator/executions/:id/flow` →
   ```ts
   type FlowNode = {
@@ -48,7 +53,7 @@
   type FlowResponse = { execution: { id, processKey, status, subject, startedAt, endedAt, rerunOfExecutionId }, nodes: FlowNode[] }
   ```
   It is built by a `lib/trace/flowAssembler.ts` that **joins existing records** (workflow instance + step history, `agent_runs`, `agent_spans`, `agent_tool_calls`, `agent_proposals` + disposition, the effector activity results). There is no new write path. Full tool payloads stay behind the existing per-run trace page (link out).
-- **Component:** `ProcessFlowTrace` `{ executionId? , subject?: { type, id }, showAttemptSelector?: boolean }`. A vertical timeline grouped by step. Agent runs expand to tool calls (CRM / ticket / KB calls are visible individually). Disposition shows who decided and a diff of the edited fields. Effector shows the command and its result. Each node deep-links to the run trace page. Live updates through the DOM event bridge (`agent_orchestrator.run.*`, `workflows.*` step events) while the execution is running.
+- **Component:** `ProcessFlowTrace` `{ executionId: string, attempts?: string[] /* execution ids */, showAttemptSelector?: boolean }`. A vertical timeline grouped by step. Agent runs expand to tool calls (CRM / ticket / KB calls are visible individually). Disposition shows who decided and a diff of the edited fields. Effector shows the command and its result. Each node deep-links to the run trace page. Live updates through the DOM event bridge (`agent_orchestrator.run.*`, `workflows.*` step events) while the execution is running.
 - Also mount `ProcessFlowTrace` on the AO process execution detail page (`/backend/processes/[id]`). This closes the "AgentTimeline not mounted" gap.
 
 ### C. Replay
@@ -61,6 +66,32 @@
    - effectors run only after a new disposition, as normal
 3. **Compare (Phase C3, stretch):** `ProcessFlowTrace` compares two attempts side by side: per-agent output diff, route, and proposed actions.
 
+### E. Proposal execution
+
+- **Problem:** `dispose` resumes the workflow via `resumeWorkflowForProposal` (`AO/lib/disposition/resume.ts`), which signals `{ proposalId, stepId, disposition, proposalPayload }`. Downstream steps can only template single values out of `context.proposalPayload`. They cannot pick the selected option or run several actions. `executeProposal` (`AO/lib/runtime/executeProposal.ts`) exists but is called only from tests, and it continues after a failed action.
+- **Change:**
+  1. The resume signal also carries `selectedOptionId`.
+  2. `executeProposal` gains `stopOnFailure?: boolean` (default `false` keeps its current behaviour) and an RBAC gate equivalent to `UPDATE_ENTITY`'s (tenant enablement + the workflow user's features, `WF/lib/activity-executor.ts`).
+  3. A new workflow function `agent_orchestrator.execute_approved_proposal`. It is registered in `AO/di.ts` as `workflowFunction:agent_orchestrator.execute_approved_proposal` and in the picker via `registerWorkflowFunctions`.
+     - `args: { proposalId, stopOnFailure? = true, actionCommandMap? }`.
+     - It loads the `AgentProposal` (scoped) and requires disposition `approved | edited`.
+     - It reads the actions with `readProposalActions(payload, selectedOptionId)` (`AO/data/proposalEnvelope.ts`). It maps action type → command id (identity by default) and enforces `isEffectWithinVocabulary` ∩ the agent's `allowedActions` (fail closed).
+     - It executes through the command bus with the workflow's scoped ctx and returns `{ ok, results: [{ type, commandId, status: 'ok'|'error'|'skipped', error? }] }`.
+     - It is idempotent per proposal: a second call returns the recorded results.
+- **Events:** `agent_orchestrator.proposal.executed` (with `clientBroadcast: true`) carrying the results.
+
+### F. Evidence envelope
+
+- **Problem:** `normalizeProposalEnvelope` re-parses the agent output into `{ options, rationale }` and drops every other field.
+- **Change:** an additive optional `evidence?: { checks?: { key, step?, passed, evidence }[], citations?: { kind, ref, label?, steps?, href? }[], segments?: { source: 'template'|'generated', ref?, text }[], uncertainty?: { code, message, blocking? }[] }` on the envelope schema (`AO/data/validators.ts`). It is preserved by `normalizeProposalEnvelope` and `reassembleProposalPayload`. Per-action `citations?: string[]` is also allowed on `proposedActionSchema`. Size cap: 32 KB, validated.
+- This feeds the decision card's citations panel (§A) and the flow trace.
+
+### G. Scripted LLM provider
+
+- An `LlmProvider` registered in `llmProviderRegistry` (`packages/shared/src/lib/ai/llm-provider-registry.ts`) under the id `scripted`. It is active only when `OM_AI_PROVIDER=scripted` and never in production builds (guarded by `NODE_ENV !== 'production'` or the explicit `OM_AI_SCRIPTED_ALLOW=1`).
+- `createModel` returns an AI-SDK mock model that answers from fixture files `<module>/agents-fixtures/<agentId>/<inputKey>.json`. `inputKey` = AO's `canonicalInputKey(input)`. Fixtures can script tool calls first, so traces contain real tool-call spans.
+- An unknown input → a deterministic error (`scripted_fixture_missing`), never a silent fallback to a real model.
+
 ## Architecture & Data Models
 
 - **New column (additive):** `process_instances.rerun_of_execution_id uuid null` (+ index). Migration + snapshot.
@@ -70,7 +101,8 @@
 
 | Method | Path | Feature | Notes |
 |---|---|---|---|
-| GET | `/api/agent_orchestrator/executions?subjectType&subjectId` | `trace.view` | additive filter on the existing list |
+| GET | `/api/agent_orchestrator/runs?workflowInstanceId` | `trace.view` | additive filter |
+| GET | `/api/agent_orchestrator/executions?subjectId` | `trace.view` | optional additive filter |
 | GET | `/api/agent_orchestrator/executions/:id/flow` | `trace.view` | redacted summaries only |
 | POST | `/api/agent_orchestrator/executions/:id/rerun` | `processes.run` | `{ supersede?: boolean }` → `{ executionId }` |
 
@@ -81,12 +113,13 @@ Additive only: new routes, a new optional query param, a nullable column, new ex
 
 ## Implementation Plan
 - **Phase A** — `ProposalDecisionCard` + long-text field support + citations panel / `citationResolvers` + tests (dispose approve/edit/reject from an embedded host; optimistic-lock conflict).
-- **Phase B** — `flowAssembler` + `/flow` + subject filter + `ProcessFlowTrace` + mount on the execution page + live updates.
+- **Phase B** — `flowAssembler` + `/flow` + `runs?workflowInstanceId` filter + `ProcessFlowTrace` + mount on the execution page + live updates.
+- **Phase E/F/G** (runtime, ships first) — the execute function + `stopOnFailure` + `selectedOptionId` in the signal; the evidence envelope; the scripted provider; unit tests (order, stop-on-failure, a disallowed action fails closed, idempotency, evidence preserved through normalize/reassemble).
 - **Phase C** — C1 playback; C2 re-run + migration; C3 compare (stretch).
 
 ### Testing
 - Unit: `flowAssembler` ordering and status derivation (fixtures: success, manual route, rejected, effector failure); redaction (no raw tool payloads).
-- Integration: the subject lookup returns only same-tenant executions; `/flow` 403 without `trace.view`; re-run links `rerun_of_execution_id` and refuses with a pending proposal; the decision card embedded in a test host disposes with edits.
+- Integration: `/runs?workflowInstanceId` returns only same-tenant runs; `/flow` 403 without `trace.view`; re-run links `rerun_of_execution_id` and refuses with a pending proposal; the decision card embedded in a test host disposes with edits.
 
 ## Risks & Impact Review
 
@@ -97,8 +130,9 @@ Additive only: new routes, a new optional query param, a nullable column, new ex
 | Re-run double-executes customer-facing actions | High | Re-run never replays effectors; a new disposition is required; supersede rejects the old proposal | Low |
 
 ## Final Compliance Report
-Additive-only contracts ✅ · tenant scoping on the subject lookup ✅ · redaction preserved ✅ · `apiCall` / DS tokens / i18n in components ✅ · OpenAPI updated ✅ · migration with snapshot ✅
+Additive-only contracts ✅ · tenant scoping on the new filters ✅ · redaction preserved ✅ · `apiCall` / DS tokens / i18n in components ✅ · OpenAPI updated ✅ · migration with snapshot ✅
 
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — Dropped external nodes (LangGraph/DeepAgents) per umbrella D5; added the citations panel for KB grounding (D7).
+- **2026-10-12** — Added §E proposal execution, §F evidence envelope and §G scripted provider (code research: approval executes nothing today; normalization drops extra fields; no stub LLM). Dispose contract corrected (full payload + `selectedOptionId`). Flow located by execution id; added the `runs?workflowInstanceId` filter.

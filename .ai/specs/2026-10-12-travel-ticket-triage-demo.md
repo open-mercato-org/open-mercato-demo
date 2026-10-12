@@ -17,7 +17,7 @@
 | 2 | `tickets` | app module (OSS) | OTRS-like helpdesk: tickets from inbound email, article thread, queue/status/priority, classification fields, reply drafts, sending replies. | [`2026-10-12-tickets-module.md`](2026-10-12-tickets-module.md) |
 | 3 | `knowledge_articles` | app module (OSS) | Knowledge Base of service processes: category → subcategory → topic, procedures, reply templates, recommended actions, search. | [`2026-10-12-knowledge-articles-module.md`](2026-10-12-knowledge-articles-module.md) |
 | 4 | `triage_agents` | app module (needs enterprise AO) | **Glue only**: agents, deterministic priority/routing functions, the triage process/workflow definition, triage projection, and UI widgets injected into `tickets`. | [`enterprise/2026-10-12-triage-agents-module.md`](enterprise/2026-10-12-triage-agents-module.md) |
-| 5 | AO platform delta | enterprise package change | Generic capabilities the demo exposes but AO lacks: **process-level flow trace**, **replay** (playback + process re-run), and an **embeddable proposal decision card** with long-text editing and a **citations panel**. | [`enterprise/agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md`](enterprise/agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md) |
+| 5 | AO platform delta | enterprise package change | Generic capabilities the demo exposes but AO lacks: **proposal execution** after approval, an **evidence envelope**, a **scripted LLM provider**, a **process-level flow trace**, **replay** (playback + process re-run), and an **embeddable proposal decision card** with long-text editing and a **citations panel**. | [`enterprise/agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md`](enterprise/agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md) |
 
 **Concerns:**
 - Units 1–3 are deliberately AI-agnostic: a human can classify, reply and request a refund without any agent. AI is plugged in only by unit 4 through events, read tools, workflow-safe commands and widget injection. This is what makes the closing line of the demo true: *"the same skeleton works for Acme 1 and Acme 2 — only the sources and process content differ"*.
@@ -237,7 +237,8 @@ Each phase leaves the app working and demoable.
 |---|---|---|---|
 | **1 — Domain** | Reservations (with balance), KB taxonomy and articles with search, tickets with intake, thread, manual classify/reply. Seeds. | 1, 2, 3 (parallel) | — |
 | **2 — Read tools + commands** | AI read tools in 1–3; workflow-safe command registration (`workflows.ts`) | 1, 2, 3 | 1 |
-| **3 — Agents + process** | 3 agents, 2 functions, process definition, projection, summary card + queue column | 4 | 2 |
+| **3 — AO runtime delta** | Proposal execution function, evidence envelope, scripted LLM provider | 5 | — |
+| **3b — Agents + process** | 3 agents, 2 functions, process definition, projection, summary card + queue column | 4 | 2, 3 |
 | **4 — Approval + flow trace** | AO embeddable decision card, flow API + component, flow tab, decision card widget | 5 → 4 | 3 |
 | **5 — Replay + extras** | Playback, process re-run, KB-edit → re-run demo moment, demo CLI, golden evals | 5, 4 | 4 |
 
@@ -275,3 +276,4 @@ Each phase leaves the app working and demoable.
 
 - **2026-10-12** — Initial draft: module split, scenario matrix, contracts, phasing.
 - **2026-10-12** — Resolved open questions (D1–D7): English-only content, no LangGraph/DeepAgents, code agents (OpenCode limitation documented), KB grounding section + KB-edit → re-run demo moment.
+- **2026-10-12** — Code-research corrections: AO runtime delta (execution, evidence, scripted provider) is a prerequisite of the agents phase.

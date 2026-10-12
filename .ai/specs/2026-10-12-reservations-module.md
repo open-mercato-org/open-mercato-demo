@@ -127,7 +127,7 @@ Events (`createModuleEvents`): `reservations.reservation.created`, `reservations
 | `reservations.list_for_customer` | `{ customerPersonId? , email? }` | `{ customerPersonId?, reservations: [{ id, bookingNumber, destination, hotelName, departureDate, returnDate, status, daysToDeparture }] }` (max 20) |
 | `reservations.get_details` | `{ reservationId }` | reservation + payments + refunds + Balance |
 
-All tools: `requiredFeatures: ['reservations.view']`, tenant/org scoped, reads via `findWithDecryption`. Customer lookup by email and contact history use the **existing `customers` tools**. If `customers.list_people` lacks an exact-email filter, add it there (additive) rather than duplicating person lookup here.
+All tools: `requiredFeatures: ['reservations.view']`, tenant/org scoped, reads via `findWithDecryption`. Contact history uses the existing `customers` tools. Lookup **by email** goes through this module's own `customer_email_hash` (`hashField` in `encryption.ts`, queried with `lookupHashCandidates`). `customers.primary_email` is encrypted without a hash column, so an exact-email filter there would not work under encryption, and `customers` is left unchanged.
 
 ## ACL (`acl.ts`)
 `reservations.view`, `reservations.manage`, `reservations.payment.record`, `reservations.refund.request`, `reservations.refund.manage`. `setup.ts` grants view, payment.record and refund.request to the employee role, and all of them to admin.
@@ -176,3 +176,4 @@ Plural module id ✅ · FK ids only to `customers` ✅ · org/tenant scoping ✅
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — English content, EUR demo amounts.
+- **2026-10-12** — Email lookup via the module's own hash; no `customers` change.

@@ -29,12 +29,12 @@ The OTRS case describes the target: a consultant opening the queue sees *Custome
 
 | Decision | Rationale |
 |---|---|
-| Intake subscribes to `inbox_ops.email.received` (not `communication_channels.message.received`) | Same reasoning as `warranty_claims/subscribers/email-to-claim.ts`: only that event carries the sender address. Idempotent on `message_id`. |
+| Intake subscribes to `inbox_ops.email.received` (not `communication_channels.message.received`) | Same reasoning as `warranty_claims/subscribers/email-to-claim.ts`: only that event carries the sender address. The payload is only `{ emailId, tenantId, organizationId, forwardedByAddress, subject }`, so the subscriber loads the `InboxEmail` by `emailId` (`findOneWithDecryption`) for the body, `messageId`, `inReplyTo` and `references`. Scope is taken from the subscriber ctx, never from the payload. Idempotent on `message_id` (fallback `emailId`). |
 | Thread matching: `In-Reply-To`/`References` → existing article `message_id`; else the `[TCK-000123]` subject token; else a new ticket | OTRS-compatible behaviour; a follow-up email appends `tickets.article.received` instead of creating a duplicate. |
 | Classification is **one command** (`tickets.ticket.classify`) with an explicit `source` (`manual` \| `workflow`) | Atomic, undoable enrichment. The event `tickets.ticket.classified` carries the before/after. |
 | `needs_manual_review` + `manual_review_reason` live on the ticket, not in the AI module | "Requires manual verification" is a helpdesk concept that a human can also set. AI is just one producer. |
 | Drafts are separate rows (`ticket_reply_drafts`) | Several drafts, authorship (`source_type`/`source_ref`) and an edit history before sending. |
-| Sending: `tickets.reply.send` → `communication_channels` outbound when a channel is configured, else a `simulated` delivery | Demo safety (umbrella Q4). The outbound article is recorded either way. |
+| Sending: `tickets.reply.send` → `sendEmail` from `@open-mercato/shared/lib/email/send` (delivers through the `communication_channels` system transport) | Demo safety (umbrella D4). There is no simulated transport in the platform, so `lib/delivery.ts` records `delivery_status: 'simulated'` when `OM_TICKETS_DELIVERY=simulated`, when delivery is disabled (`isEmailDeliveryDisabled`) or when no transport is configured. `sendEmail` cannot set `In-Reply-To`; the `[TCK-…]` subject token keeps threading. The outbound article is recorded either way. |
 | Priority is a fixed enum `low \| normal \| high \| urgent`; queue is a dictionary | Priority drives sorting and colours (enum = stable). Queues are tenant-configurable (`dictionaries`). |
 
 ## Architecture
@@ -160,3 +160,4 @@ Plural id ✅ · FK ids only (customers, reservations, KB keys, inbox_ops) ✅ �
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — English labels and i18n.
+- **2026-10-12** — Intake loads `InboxEmail` by `emailId`; delivery via `sendEmail` + the module's own `simulated` mode.

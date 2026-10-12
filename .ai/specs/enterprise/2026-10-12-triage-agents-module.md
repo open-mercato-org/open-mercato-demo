@@ -2,7 +2,7 @@
 
 > **Status:** Draft · **Date:** 2026-10-12 · **Module:** `triage_agents` (`apps/mercato/src/modules/triage_agents`, `@app`, enabled only with `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`, like `agent_examples`)
 > **Parent:** [`../2026-10-12-travel-ticket-triage-demo.md`](../2026-10-12-travel-ticket-triage-demo.md)
-> **Depends on:** `tickets`, `reservations`, `knowledge_articles` (OSS app modules), `customers`, `workflows`, enterprise `agent_orchestrator` (+ [AO delta](agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md) for Phases 4–5)
+> **Depends on:** `tickets`, `reservations`, `knowledge_articles` (OSS app modules), `customers`, `workflows`, enterprise `agent_orchestrator` (+ [AO delta](agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md): §E–G before Phase 3, §A–C for Phases 4–5)
 
 ## TLDR
 
@@ -32,7 +32,7 @@ flowchart TD
   AP --> R{"route"}
   R -- manual --> MR["UPDATE_ENTITY tickets.ticket.flag_manual_review"] --> E(["END: manual_review"])
   R -- assisted --> RA["INVOKE_AGENT resolution_advisor — proposal<br/>tools: knowledge_articles.get_article, reservations.get_details, tickets.get_ticket"]
-  RA -- none_proposed --> MR
+  RA -- researcher handle (none_proposed) --> MR
   RA -- pending → USER_TASK on ticket page --> D{"disposition"}
   D -- approved / edited --> EX["effectors: reservations.refund.request,<br/>tickets.ticket.transition, tickets.reply.send"] --> E2(["END: assisted_done"])
   D -- rejected --> MR2["UPDATE_ENTITY tickets.ticket.flag_manual_review<br/>reason: proposal_rejected"] --> E3(["END: rejected"])
@@ -53,7 +53,7 @@ The AO has the machinery (event triggers → processes → `INVOKE_AGENT` → pr
 | Three agents of different kinds: identifier = `researcher`, classifier = `researcher`, resolution advisor = `proposal` (`decision_maker`) | Only the last one proposes customer-facing actions. The first two inform, and their outputs are auto-applied by deterministic steps. |
 | Priority and route are **functions** (`workflowFunction:triage_agents.*` in DI), not LLM output | Reproducible, unit-tested and explainable ("high – departure in 3 days"). The LLM only provides `urgencySignal`. |
 | Classification applied with `source: 'workflow'` **without approval** | It is an internal, undoable enrichment ("the agent enriches the case before the consultant opens the ticket"). |
-| Auto-approval **disabled** for `resolution_advisor` in this process (`onResult.autoApproveThreshold` omitted; the policy blocks `risk`) | "No action on the customer without a human." |
+| Auto-approval **disabled** for `resolution_advisor` in this process (`onResult: { alwaysAsk: true }`; `onResult` is required, so it cannot simply be omitted) | "No action on the customer without a human." |
 | `allowedActions` of `resolution_advisor` = `reservations.refund.request`, `tickets.ticket.transition`, `tickets.reply.send` | It is fail-closed: the agent cannot propose anything else even if the KB names it. |
 | Tools rather than an AO `ContextModule` for multi-source reads | Demo Step 2 needs every source read **visible as a tool call** in the trace. A context bundle is resolved before the run and appears as one block. A `ContextModule` (KB retrieval) stays as an optional enrichment. |
 
@@ -61,7 +61,7 @@ The AO has the machinery (event triggers → processes → `INVOKE_AGENT` → pr
 
 All agents: `moduleId: 'triage_agents'`, `loop.maxSteps ≤ 8`, English output for user-visible text, instructions in `lib/prompts/*.md` (sectioned like `warranty_claims.claims_assistant`). The rules **never guess**, **cite evidence**, and **list uncertainty explicitly** are in every prompt.
 
-### `triage_agents.context_identifier` (researcher)
+### `triage_agents.context_identifier` (`result.kind: 'research'`, `agentType: 'researcher'`)
 - **Input:** `{ ticketId }`
 - **Tools:** `tickets.get_ticket`, `tickets.list_tickets`, `customers.list_people` (exact email), `reservations.find_by_booking_number`, `reservations.list_for_customer`, `reservations.get_details`
 - **Procedure** (from the OTRS brief §1):
@@ -83,13 +83,13 @@ All agents: `moduleId: 'triage_agents'`, `loop.maxSteps ≤ 8`, English output f
   }
   ```
 
-### `triage_agents.classifier` (researcher)
+### `triage_agents.classifier` (`result.kind: 'research'`, `agentType: 'researcher'`)
 - **Input:** `{ ticketId, identification }`
 - **Tools:** `tickets.get_ticket`, `knowledge_articles.browse_taxonomy`, `knowledge_articles.search`, `knowledge_articles.get_article`
 - **Output:** `{ categoryKey, subcategoryKey, topicKey, topicVersion, summary (1–3 sentences, English, no full IBAN), intent, urgencySignal: 'none' | 'raise_one', urgencyEvidence?, automationLevel (copied from the article), extracted: { refundAmount?: number, bankAccount?: string, paymentDate?: string }, uncertainty[], confidence }`
 - If no topic fits with confidence ≥ 0.5 → `topicKey: 'general.identification.unknown_booking'` plus an `uncertainty` entry.
 
-### `triage_agents.resolution_advisor` (proposal, `agentType: 'decision_maker'`)
+### `triage_agents.resolution_advisor` (`result.kind: 'proposal'`, `agentType: 'decision_maker'`)
 - **Input:** `{ ticketId, identification, classification }`
 - **Tools:** `knowledge_articles.get_article`, `reservations.get_details`, `tickets.get_ticket`
 - **Procedure:** load the article version; walk its `procedure_steps` in order; run each `required_checks` item against CRM data and record `checks[]` as passed/failed with evidence **and the step id it comes from**. If a blocking check fails → **no proposal** (`none_proposed`) with the reason (e.g. payment confirmation without a booked payment → `payment_not_visible`). Otherwise propose **one option** whose actions are a subset of the article's `recommended_actions`, plus a reply draft rendered from `reply_template` and the facts. The draft is split into segments, each tagged `template` (from the article) or `generated`.
@@ -121,8 +121,9 @@ The goal is to make "the agent follows the KB" **verifiable**, not just claimed.
 | Layer | Mechanism | Failure behaviour |
 |---|---|---|
 | Input | `resolution_advisor` must call `knowledge_articles.get_article` for the classified `topicKey`; the call (with `key@version`) is a visible node in the Flow tab | no article → `none_proposed` → manual (`kb_article_missing`) |
-| Output schema | Every action and check carries `citations` (`key@version#S<n>` / `#check:<key>`); action types ⊆ the article's `recommended_actions`; the draft is split into `template` / `generated` segments | schema violation → run fails → `ai_failed` |
-| Guardrail | AO grounding check (cite-or-abstain): the cited version exists, the cited step ids exist in it, and every `required_checks` key appears in `checks[]` | → `guardrailBlocked` → manual review (`kb_grounding_failed`) |
+| Output schema | Persisted in the AO proposal `evidence` block (AO delta §F; without it AO's envelope normalization drops these fields). Every action and check carries `citations` (`key@version#S<n>` / `#check:<key>`); action types ⊆ the article's `recommended_actions`; the draft is split into `template` / `generated` segments | schema violation → run fails → `ai_failed` |
+| Structure | Zod `.superRefine` on the result schema: every action and check has a citation; every `required_checks` key appears in `evidence.checks[]` | schema failure → `guardrailBlocked` → manual review (`kb_grounding_failed`) |
+| Guardrail | AO grounding set (`registerGroundingSet`, cite-or-abstain) for `resolution_advisor`. AO resolves citations **only** against the context bundle's `citableSources`, not tool calls, so a `ContextModule` registered for this agent adds an `entity` source that loads the article version for `input.classification.topicKey`. **Fallback** if that spike fails: `record_stage` verifies the cited step ids against `knowledge_article_versions` and the card shows a "grounding unverified" badge | → `guardrailBlocked` → manual review (`kb_grounding_failed`) |
 | Policy | `automation_level`, `priority_floor` and `target_queue_key` are read from the article by the deterministic functions, not by the LLM | n/a: deterministic |
 | UI | The decision card citations panel resolves `key@version` against `knowledge_article_versions` (exactly the text the agent read) and links to the article with the step highlighted | — |
 | Demo proof | Edit the article live → publish v4 → **Re-run triage** → the new check appears in `checks[]`, the draft contains the new template sentence, and the citation shows v4. Flow compare (AO delta C3) shows v3 vs v4 side by side | — |
@@ -152,16 +153,16 @@ Returns `{ route: 'assisted' | 'manual', reasonCode?, reason?, targetQueueKey? }
 
 ## Process & workflow definition
 
-- `examples/ticket-triage-workflow.json` (modelled on AO `examples/refund-triage-workflow.json`): steps `start → identify → classify → policy → apply_classification → (manual_review | resolve) → (effectors | flag_rejected) → end`. Transitions use the outcome handles `approved`, `rejected`, `guardrailBlocked` and the `context.route` condition. `errorDirective: { mode: 'failureQueue' }` on the agent steps; the failure path flags manual review with `ai_failed`.
-- `resolve` step: `INVOKE_AGENT resolution_advisor` with `review: { assignedToRoles: ['employee'], priority: '{{context.priority}}', deadline: { duration: 'PT4H' } }` and `signalConfig: agent_orchestrator.proposal.ready`.
-- **Effectors:** the approved/edited option's actions run in order through AO's `executeProposal` path (action type → command id, re-checked against `allowedActions` ∩ workflow-safe catalogue right before execution). Order: `reservations.refund.request` → `tickets.ticket.transition` → `tickets.reply.send`. If one fails, the rest are skipped, the step fails into `failureQueue`, and the ticket is flagged `effector_failed`. Partial success is visible in the flow trace.
-  > **Verify in Phase 3:** whether the materialized workflow can carry a multi-action option into `executeProposal` today, or only single `UPDATE_ENTITY {commandId}` steps reading `context.proposalPayload`. Fallback: the `EXECUTE_FUNCTION triage_agents.execute_approved_actions` function that calls `executeProposal`.
-- **Process definition** seeded in `setup.ts` `seedExamples` (idempotent by key) through the AO processes command (soft-optional: skipped when AO is absent):
+- `examples/ticket-triage-workflow.json` (modelled on AO `examples/refund-triage-workflow.json`): steps `start → identify → classify → policy → apply_classification → (manual_review | resolve) → (effectors | flag_rejected) → end`. Transitions use the WF outcome handles (`WF/lib/outcome-routing.ts`): `approved` (also covers `edited`), `rejected`, `researcher` (covers `none_proposed`), `guardrailBlocked`, `error`, plus the `context.route` condition. `errorDirective: { mode: 'failureQueue' }` on the agent steps; the failure path flags manual review with `ai_failed`.
+- `resolve` step: `INVOKE_AGENT resolution_advisor` with `onResult: { alwaysAsk: true }`, `review: { assignedToRoles: ['employee'], priority: '{{context.priority}}', deadline: { duration: 'PT4H' } }`, `subject: { type: 'tickets:ticket', id: '{{context.ticketId}}', label: '{{context.ticketNumber}}' }` (subject is set on the INVOKE_AGENT node and stamped on the process instance when the proposal is created) and `signalConfig: agent_orchestrator.proposal.ready`. On the human path `outputMapping` is ignored; the signal merges `{ proposalId, selectedOptionId, disposition, proposalPayload }` into `context`.
+- **Effectors:** one step, `EXECUTE_FUNCTION agent_orchestrator.execute_approved_proposal` with `args: { proposalId: '{{context.proposalId}}', stopOnFailure: true }`. This is the AO platform function from the [AO delta §E](agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md). It runs the **selected** option's actions in order (action type = command id), each re-checked against `allowedActions` ∩ the workflow-safe catalogue and the caller's RBAC. Order as proposed: `reservations.refund.request` → `tickets.ticket.transition` → `tickets.reply.send`. On the first failure the rest are skipped, the function returns `ok: false`, and the transition flags the ticket `effector_failed`. Partial success is visible in the flow trace.
+  > Today `executeProposal` has no production caller and a multi-action option cannot be addressed from workflow templates, so this function is a hard dependency (AO delta Phase E).
+- **Workflow definition** seeded from the JSON like AO's `seedWorkflowDefinitionFile` (`AO/lib/seeds.ts`). **Process definition** created in `setup.ts` `seedExamples` with `em.create(ProcessDefinition, …)` (no create command exists; idempotent by key; soft-optional: skipped when AO is absent), `workflowMode: 'workflow'`, `workflowId` = the seeded definition:
   - key `triage_agents.ticket_triage`
   - triggers:
-    - `{ kind: 'event', eventPattern: 'tickets.ticket.created', contextMapping: [{ targetKey: 'ticketId', sourceExpression: 'payload.id' }] }`
-    - `{ kind: 'manual' }` (used by "Re-run triage")
-  - subject mapping `{ subjectType: 'tickets:ticket', subjectId: '{{context.ticketId}}', subjectLabel: '{{context.ticketNumber}}' }` (lets the AO delta find the flow by ticket).
+    - `{ kind: 'event', eventPattern: 'tickets.ticket.created', config: { contextMapping: [{ targetKey: 'ticketId', sourceExpression: 'id' }, { targetKey: 'ticketNumber', sourceExpression: 'number' }] } }` (`sourceExpression` is relative to the event payload; tenant/org come from the emit context)
+    - `{ kind: 'manual', requireFeatures: ['triage_agents.run'] }` (used by "Re-run triage" via `POST /api/agent_orchestrator/processes/:id/executions` with `{ input: { ticketId, ticketNumber }, idempotencyKey }`)
+  - The flow is located by the `process_execution_id` stored in the `ticket_triages` projection (the researcher-only manual paths never create a proposal, so they never stamp a subject).
 
 ## Data Models
 
@@ -196,7 +197,7 @@ On `GET /api/tickets/tickets` (list + detail), add `_triage: { aiMode, stage, re
 |---|---|---|
 | `triage-summary-card` | `detail:tickets.ticket:header` | The target triage result block from the OTRS brief: Customer (✓ / ? with match level) · Reservation · Category path · Priority + reason · Summary · Recommended action · **AI status** (`StatusBadge`: assisted = info, manual_review = warning, failed = error) · Draft (prepared/sent) · uncertainty chips with tooltips. Live via `useAppEvent`. |
 | `triage-decision-card` | `detail:tickets.ticket:composer` | AO `ProposalDecisionCard` (AO delta): facts, checks ✓/✗, **"Based on knowledge base" citations panel** (article path + version link, the cited procedure steps with their text, each check ✓/✗ with its step and CRM evidence, template-derived draft segments highlighted), actions with editable fields (amount, reply body as a long-text editor, IBAN read-only and masked with a reveal for `reservations.refund.manage`), buttons **Approve & send** / **Reject** (reason required); edits → `dispose{ edit }`. `Cmd/Ctrl+Enter` approve, Escape cancel. |
-| `triage-flow-tab` | `detail:tickets.ticket:tabs` | AO `ProcessFlowTrace` for `subjectType=tickets:ticket&subjectId=:id` with an attempt selector, **Playback** and **Re-run triage** buttons. |
+| `triage-flow-tab` | `detail:tickets.ticket:tabs` | AO `ProcessFlowTrace` for the projection's `process_execution_id` (attempts = the projection history) with an attempt selector, **Playback** and **Re-run triage** buttons. |
 | `triage-queue-column` | `data-table:tickets.ticket:columns` + `:filters` | the "AI" column (status badge + recommended action), filter "AI status". |
 | `triage-scenario-presets` | `data-table:tickets.ticket:toolbar` | "Send demo scenario" → simulate endpoint with a preset. |
 
@@ -211,7 +212,7 @@ Six golden cases (one per persona) seeded as AO eval cases for the three agents,
 1. Module skeleton, `modules.ts` registration under the enterprise flags, `acl.ts`, `setup.ts`.
 2. `lib/priorityPolicy.ts` + `lib/routePolicy.ts` + DI functions (unit tests over the personas).
 3. Three agents + prompts + result schemas; Playground sample inputs.
-4. Workflow JSON + process seed (event + manual trigger, subject mapping); verify the effector mechanism (see the note above).
+4. Workflow JSON + process seed (event + manual trigger, `subject` on INVOKE_AGENT), effector via `agent_orchestrator.execute_approved_proposal` (requires AO delta Phase E).
 5. `ticket_triages` entity + migration, `record_stage` function, subscribers, enricher.
 6. `triage-summary-card` + queue column; scenario presets + simulate.
 
@@ -226,7 +227,7 @@ Six golden cases (one per persona) seeded as AO eval cases for the three agents,
 
 ### Testing
 - Unit: the priority and route tables; the result schemas reject over-long summaries and full IBANs in the summary.
-- Integration (stubbed LLM provider returning recorded outputs per scenario):
+- Integration (the AO **scripted LLM provider**, `OM_AI_PROVIDER=scripted`, returning recorded fixture outputs per scenario; AO delta §G):
   - Scenario 1: classify applied → proposal pending → approve-with-edit → refund `requested` (350 EUR) + outbound article `simulated` + projection `done/assisted`.
   - Scenario 2a: transition to `resolved` + reply.
   - Scenarios 2b / 3 / 4 / ambiguous: no proposal; ticket `needs_manual_review` with the expected reason code; the complaint is in the `complaints` queue.
@@ -251,3 +252,4 @@ Module id plural ✅ · no business data / FK ids only ✅ · writes only via wo
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — KB grounding section (citations, guardrail, draft segments, demo proof); English output; external-node stub removed.
+- **2026-10-12** — Aligned with code research: trigger `config.contextMapping` + `sourceExpression: 'id'`, `alwaysAsk`, outcome handles (`researcher` for none_proposed), subject on INVOKE_AGENT, flow located via the projection, effector = AO `execute_approved_proposal`, evidence block, grounding via ContextModule + fallback, scripted provider.
