@@ -8,6 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { submitDialogFormOnModEnter } from './dialogKeyboard'
 import { isValidIban } from '../lib/iban'
 import { formatMoney } from './ReservationBadges'
 
@@ -129,7 +130,7 @@ export function RefundRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onKeyDown={submitDialogFormOnModEnter}>
         <DialogHeader>
           <DialogTitle>{t('reservations.refund.dialog.title', 'Request refund')}</DialogTitle>
           <DialogDescription>

@@ -41,6 +41,7 @@ test.describe('TC-RES-004: reservations UI', () => {
       await ibanInput.fill(VALID_IBAN)
       await expect(ibanInput).toHaveValue(VALID_IBAN)
       await dialog.locator('[data-crud-field-id="reason"] textarea').fill('QA overpayment refund')
+      await expect(ibanInput).toHaveValue(VALID_IBAN)
       await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter')
       await expect(dialog).toBeHidden({ timeout: 15_000 })
       await expect(page.getByText('Requested', { exact: true }).first()).toBeVisible()

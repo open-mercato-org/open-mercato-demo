@@ -37,6 +37,7 @@ import type {
 
 const LIST_HREF = '/backend/reservations'
 const CONTEXT_ID = 'reservations:detail'
+const LOAD_FAILED = 'load_failed'
 
 type DetailState = {
   reservation: ReservationListItem
@@ -115,11 +116,11 @@ export function ReservationDetail({ id }: { id: string }) {
         balance,
       })
     } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : t('reservations.errors.loadFailed', 'Failed to load reservation'))
+      setError(err instanceof Error && err.message ? err.message : LOAD_FAILED)
     } finally {
       setLoading(false)
     }
-  }, [id, t])
+  }, [id])
 
   React.useEffect(() => {
     setLoading(true)
@@ -196,7 +197,10 @@ export function ReservationDetail({ id }: { id: string }) {
       />
     )
   }
-  if (error || !state) return <ErrorMessage label={error ?? t('reservations.errors.loadFailed', 'Failed to load reservation')} />
+  if (error || !state) {
+    const label = error && error !== LOAD_FAILED ? error : t('reservations.errors.loadFailed', 'Failed to load reservation')
+    return <ErrorMessage label={label} />
+  }
 
   const { reservation, payments, refunds, balance } = state
   const currency = reservation.currencyCode

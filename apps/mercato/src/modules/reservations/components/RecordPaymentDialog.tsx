@@ -8,6 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { submitDialogFormOnModEnter } from './dialogKeyboard'
 import { PAYMENT_METHODS, PAYMENT_STATUSES } from '../data/constants'
 
 const CONTEXT_ID = 'reservations:payment-record'
@@ -118,7 +119,7 @@ export function RecordPaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onKeyDown={submitDialogFormOnModEnter}>
         <DialogHeader>
           <DialogTitle>{t('reservations.payment.dialog.title', 'Record payment')}</DialogTitle>
           <DialogDescription>

@@ -190,6 +190,9 @@ export function ReservationEditForm({ id }: { id: string }) {
   const groups = useReservationGroups(t)
   const detailHref = `/backend/reservations/${id}`
 
+  const tRef = React.useRef(t)
+  tRef.current = t
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -208,7 +211,7 @@ export function ReservationEditForm({ id }: { id: string }) {
           setInitial(toReservationFormValues(item))
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error && err.message ? err.message : t('reservations.errors.loadFailed', 'Failed to load reservation'))
+        if (!cancelled) setError(err instanceof Error && err.message ? err.message : tRef.current('reservations.errors.loadFailed', 'Failed to load reservation'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -217,7 +220,7 @@ export function ReservationEditForm({ id }: { id: string }) {
     return () => {
       cancelled = true
     }
-  }, [id, t])
+  }, [id])
 
   if (loading) return <LoadingMessage label={t('reservations.detail.loading', 'Loading reservation…')} />
   if (notFound) {
