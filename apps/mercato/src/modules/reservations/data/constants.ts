@@ -28,8 +28,8 @@ export const RESERVATION_PAYMENT_ENTITY_ID = 'reservations:reservation_payment' 
 export const RESERVATION_REFUND_ENTITY_ID = 'reservations:reservation_refund' as const
 
 export const RESERVATION_RESOURCE_KIND = 'reservations.reservation' as const
-export const RESERVATION_PAYMENT_RESOURCE_KIND = 'reservations.reservation_payment' as const
-export const RESERVATION_REFUND_RESOURCE_KIND = 'reservations.reservation_refund' as const
+export const RESERVATION_PAYMENT_RESOURCE_KIND = 'reservations.payment' as const
+export const RESERVATION_REFUND_RESOURCE_KIND = 'reservations.refund' as const
 
 export const CUSTOMER_ENTITY_ID = 'customers:customer_entity' as const
 

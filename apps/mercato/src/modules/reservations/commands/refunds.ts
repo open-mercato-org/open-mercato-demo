@@ -111,6 +111,12 @@ async function emitRefundSideEffects(
     indexer: { entityType: RESERVATION_REFUND_ENTITY_ID },
   })
   await invalidateReservationsCache(ctx, RESERVATION_REFUND_RESOURCE_KIND, identifiers, `reservations.refund.${action}`)
+  await invalidateReservationsCache(
+    ctx,
+    RESERVATION_RESOURCE_KIND,
+    { id: refund.reservationId, tenantId: refund.tenantId, organizationId: refund.organizationId },
+    `reservations.refund.${action}`,
+  )
 }
 
 async function emitStatusChanged(refund: ReservationRefund, fromStatus: RefundStatus, toStatus: RefundStatus): Promise<void> {

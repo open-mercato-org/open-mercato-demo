@@ -11,6 +11,7 @@ import { ReservationPayment } from '../data/entities'
 import {
   RESERVATION_PAYMENT_ENTITY_ID,
   RESERVATION_PAYMENT_RESOURCE_KIND,
+  RESERVATION_RESOURCE_KIND,
   type PaymentMethod,
   type PaymentStatus,
 } from '../data/constants'
@@ -74,6 +75,12 @@ async function emitPaymentSideEffects(
     indexer: { entityType: RESERVATION_PAYMENT_ENTITY_ID },
   })
   await invalidateReservationsCache(ctx, RESERVATION_PAYMENT_RESOURCE_KIND, identifiers, `reservations.payment.${action}`)
+  await invalidateReservationsCache(
+    ctx,
+    RESERVATION_RESOURCE_KIND,
+    { id: payment.reservationId, tenantId: payment.tenantId, organizationId: payment.organizationId },
+    `reservations.payment.${action}`,
+  )
 }
 
 const recordPaymentCommand: CommandHandler<PaymentRecordInput, { paymentId: string; reservationId: string }> = {
