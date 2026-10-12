@@ -34,7 +34,7 @@ function resolvePresenter(record: Record<string, unknown>): SearchResultPresente
   return {
     title: number,
     subtitle: subtitle || undefined,
-    icon: 'life-buoy',
+    icon: 'ticket',
     badge: readString(record, 'status', 'status') ?? undefined,
   }
 }
