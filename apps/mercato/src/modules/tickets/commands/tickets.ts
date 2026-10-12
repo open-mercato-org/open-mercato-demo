@@ -2,7 +2,6 @@ import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Ticket, TicketArticle } from '../data/entities'
 import { DEFAULT_QUEUE_KEY, type TicketPriority, type TicketStatus } from '../data/constants'
 import {
@@ -12,11 +11,11 @@ import {
   ticketFlagManualReviewSchema,
   ticketTransitionSchema,
   ticketUpdateSchema,
-  type TicketClassifyParsed,
   type TicketCreateParsed,
 } from '../data/validators'
 import { TicketNumberGenerator } from '../lib/numberGenerator'
 import { assertTransition } from '../lib/stateMachine'
+import { applyClassification, assertClassificationWritable, classificationView } from '../lib/classification'
 import { normalizeMessageId } from '../lib/threadMatcher'
 import { emitTicketsEvent } from '../events'
 import {
@@ -272,63 +271,6 @@ const deleteTicketCommand: CommandHandler<unknown, TicketMutationResult> = {
     const ticket = await restoreTicketFromSnapshot(ctx, before, 'tickets.ticket.delete.undo')
     await emitTicketUndoCrud(ctx, 'created', ticket)
   },
-}
-
-export function assertClassificationWritable(
-  current: Pick<Ticket, 'classificationSource'>,
-  input: Pick<TicketClassifyParsed, 'source' | 'force'>,
-): void {
-  if (input.source !== 'workflow') return
-  if (current.classificationSource !== 'manual') return
-  if (input.force === true) return
-  throw new CrudHttpError(409, { error: 'tickets.errors.manualClassificationLocked', code: 'manual_classification_locked' })
-}
-
-type ClassificationView = {
-  customerPersonId: string | null
-  reservationId: string | null
-  reservationNumberSnapshot: string | null
-  categoryKey: string | null
-  subcategoryKey: string | null
-  topicKey: string | null
-  categoryPathSnapshot: string | null
-  priority: TicketPriority
-  priorityReason: string | null
-  classificationSource: string | null
-}
-
-function classificationView(ticket: Ticket): ClassificationView {
-  return {
-    customerPersonId: ticket.customerPersonId ?? null,
-    reservationId: ticket.reservationId ?? null,
-    reservationNumberSnapshot: ticket.reservationNumberSnapshot ?? null,
-    categoryKey: ticket.categoryKey ?? null,
-    subcategoryKey: ticket.subcategoryKey ?? null,
-    topicKey: ticket.topicKey ?? null,
-    categoryPathSnapshot: ticket.categoryPathSnapshot ?? null,
-    priority: ticket.priority,
-    priorityReason: ticket.priorityReason ?? null,
-    classificationSource: ticket.classificationSource ?? null,
-  }
-}
-
-export function applyClassification(ticket: Ticket, input: TicketClassifyParsed, now: Date): void {
-  if (hasOwn(input, 'customerPersonId')) ticket.customerPersonId = input.customerPersonId ?? null
-  if (hasOwn(input, 'reservationId')) ticket.reservationId = input.reservationId ?? null
-  if (hasOwn(input, 'reservationNumberSnapshot')) ticket.reservationNumberSnapshot = input.reservationNumberSnapshot ?? null
-  if (hasOwn(input, 'categoryKey')) ticket.categoryKey = input.categoryKey ?? null
-  if (hasOwn(input, 'subcategoryKey')) ticket.subcategoryKey = input.subcategoryKey ?? null
-  if (hasOwn(input, 'topicKey')) ticket.topicKey = input.topicKey ?? null
-  if (hasOwn(input, 'categoryPathSnapshot')) ticket.categoryPathSnapshot = input.categoryPathSnapshot ?? null
-  if (input.priority) {
-    ticket.priority = input.priority
-    ticket.priorityRank = priorityRank(input.priority)
-  }
-  if (hasOwn(input, 'priorityReason')) ticket.priorityReason = input.priorityReason ?? null
-  if (hasOwn(input, 'summary')) ticket.summary = input.summary ?? null
-  ticket.classifiedAt = now
-  ticket.classificationSource = input.source
-  ticket.updatedAt = now
 }
 
 const classifyTicketCommand: CommandHandler<unknown, TicketMutationResult> = {

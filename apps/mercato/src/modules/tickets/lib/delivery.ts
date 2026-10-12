@@ -1,6 +1,7 @@
 import { sendEmail, type SendEmailOptions } from '@open-mercato/shared/lib/email/send'
 import { isEmailDeliveryConfigured, isEmailDeliveryDisabled } from '@open-mercato/shared/lib/email/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('tickets').child({ component: 'delivery' })
 
@@ -63,6 +64,7 @@ export async function deliverTicketReply(
     return { status: 'sent', sentAt: now(), reason: 'sent' }
   } catch (err) {
     logger.warn('Ticket reply delivery failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'tickets', code: 'tickets.delivery_failed' })
     return { status: 'failed', sentAt: null, reason: 'transport_error' }
   }
 }

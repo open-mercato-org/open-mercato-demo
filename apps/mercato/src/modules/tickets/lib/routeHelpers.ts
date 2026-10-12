@@ -13,6 +13,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('tickets').child({ component: 'api' })
 
@@ -159,5 +160,6 @@ export async function handleRouteError(err: unknown, label: string): Promise<Nex
     return NextResponse.json({ error: translate('tickets.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   logger.error(`${label} failed`, { err })
+  getTelemetryRuntime()?.reportError(err, { module: 'tickets', code: 'tickets.route_failed', attributes: { route: label } })
   return NextResponse.json({ error: translate('tickets.errors.unexpected', 'Something went wrong. Please try again.') }, { status: 500 })
 }

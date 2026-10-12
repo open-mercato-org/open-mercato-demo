@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { loadInboundEmailFromInbox } from '../lib/inboxEmailLoader'
 import { ingestInboundEmail } from '../lib/emailIntake'
 
@@ -66,6 +67,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     await ingestInboundEmail({ em, container, scope, email, channel: 'email' })
   } catch (err) {
     logger.warn('Failed to create ticket from inbound email', { err, emailId })
+    getTelemetryRuntime()?.reportError(err, { module: 'tickets', code: 'tickets.email_intake_failed' })
     throw err
   }
 }

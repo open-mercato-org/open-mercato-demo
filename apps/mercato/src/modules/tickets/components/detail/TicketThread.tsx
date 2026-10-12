@@ -1,6 +1,5 @@
 "use client"
 
-import * as React from 'react'
 import { ArrowDownLeft, ArrowUpRight, StickyNote } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
