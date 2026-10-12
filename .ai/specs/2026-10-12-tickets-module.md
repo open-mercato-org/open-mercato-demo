@@ -157,7 +157,29 @@ Workflow-safe registration in `workflows.ts` with the matching `requiredFeatures
 ## Final Compliance Report
 Plural id ✅ · FK ids only (customers, reservations, KB keys, inbox_ops) ✅ · scoping ✅ · encryption map ✅ · status via command only ✅ · undo (except the external send, documented) ✅ · `makeCrudRoute`/`CrudForm`/`DataTable` ✅ · injection spots additive ✅ · DS status tokens ✅
 
+## Implementation Notes (as built)
+
+- **Sorting:** a `priority_rank` column backs the "priority desc" default sort, because a text enum cannot sort by severity. The list sorts by rank, then `last_inbound_at` ascending.
+- **Additive commands, events and routes:**
+  - `tickets.ticket.delete` + `tickets.ticket.deleted` (CRUD DELETE)
+  - `tickets.article.receive` (email follow-ups; not undoable)
+  - `GET /api/tickets/queues`
+  - the simulate response also returns `articleId`, `messageId` and `match`
+- **Additive inputs:** `flag_manual_review` accepts `clear: true`. `classify` also accepts `reservationNumberSnapshot`, `categoryPathSnapshot` and `force`.
+- **Status after `reply.send`:** it reaches `pending_customer` or `resolved` through the shortest valid path, e.g. `new → open → pending_customer`.
+- **Threading:** an inbound email that matches a **closed** ticket opens a new ticket. Outbound articles get a synthetic `message_id`, so replies to simulated sends thread via `In-Reply-To`.
+- **Email intake** is on by default; `OM_TICKETS_EMAIL_INTAKE=false` disables it.
+- **Simulate:** the "Simulate inbound email" button is the module's own widget on `data-table:tickets.ticket:toolbar` (no presets; `triage_agents` adds presets).
+- **Saved filters** (Mine, Needs manual review, Urgent) are preset buttons next to the DataTable views.
+- **CRUD list cache:** with `ENABLE_CRUD_API_CACHE`, system-context commands whose `buildLog` returns no resource kind left lists stale, so every ticket write invalidates the list cache explicitly.
+- **Not built yet:**
+  - the reservation tab widget (after reservations and tickets are integrated)
+  - the KB taxonomy select: category and topic keys are free-text for now
+  - reservation labels resolved via `tryResolve` (the UI shows the snapshot or the id)
+- **Existing tenants** need `yarn mercato auth sync-role-acls` for the new features.
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — English labels and i18n.
 - **2026-10-12** — Intake loads `InboxEmail` by `emailId`; delivery via `sendEmail` + the module's own `simulated` mode.
+- **2026-10-12** — Implementation notes from the Phase 1c build.

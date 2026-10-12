@@ -137,6 +137,19 @@ The demo's **KB-edit moment** (umbrella, D7) edits `payments.refunds.overpayment
 ## Final Compliance Report
 Plural module id ✅ · scoping ✅ · stable keys ✅ · `makeCrudRoute` ✅ · `search.ts` with `aclFeatures` ✅ · `updated_at` ✅ · i18n ✅ · no PII → no encryption map needed (documented) ✅
 
+## Implementation Notes (as built)
+
+- **Version endpoint:** `GET /api/knowledge_articles/articles/:id/versions/:version`. The `:id` segment accepts the article **key** or id (one dynamic segment name per level, shared with `POST /articles/:id/publish`). `:version` also accepts `latest`.
+- **Extra columns:** `knowledge_article_versions.article_key` (denormalized, so `key@version` resolves without a join) and `knowledge_articles.published_at`.
+- **Status semantics:** once published, the article row stays `published` and acts as the working copy. Agents and citations always read the latest immutable snapshot, so edits reach agents only on the next publish (this is exactly the demo's live v4 moment).
+- **Taxonomy response:** `{ items: [...] }`. Topics also carry `status` and `version`.
+- **Seeds:** one snapshot per article at its stated version. The overpayment refund article is v3; the others are v1. Seeds write through the entity manager, so they reach the search index only after a reindex; the ILIKE fallback still finds them.
+- **Search:** strategies `fulltext`, `vector` and `tokens`. "Published only" is enforced in the search tool, which re-checks `status = 'published'` per hit, because the indexer still indexes `fieldPolicy` fields when `buildSource` returns null.
+- **Extra events:** `category.created`, `category.deleted` and `article.deleted`. `article.published` is persistent and has `clientBroadcast`.
+- **Step ids:** reordering renumbers S1…Sn; add and remove keep the existing ids. The server validates that step, check and action keys are unique and that every reference resolves.
+- **Defaults:** `text[]` and `jsonb` columns have no DB default (MikroORM cannot convert one); the app supplies the values.
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — Citable `procedure_steps`, immutable `knowledge_article_versions`, publish endpoint; English seed content.
+- **2026-10-12** — Implementation notes from the Phase 1b build.

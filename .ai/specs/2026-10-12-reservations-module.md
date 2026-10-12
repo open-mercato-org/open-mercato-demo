@@ -45,7 +45,7 @@ Core `customers` has no booking concept. `sales_orders` carries commerce baggage
 
 - **Consultant** looks up reservation ABC123 and sees departure, hotel, payments and overpayment, so they can answer without asking finance.
 - **Consultant / approved agent proposal** requests a 350 EUR refund to the given account, so finance can execute it.
-- **Triage agent** verifies that ABC123 belongs to `anna.kowalska@example.com` and reads the days to departure.
+- **Triage agent** verifies that ABC123 belongs to `anna.carter@example.com` and reads the days to departure.
 
 ## Architecture
 
@@ -173,7 +173,27 @@ Entity `reservations:reservation`. Source: booking number, destination, hotel, c
 ## Final Compliance Report
 Plural module id ✅ · FK ids only to `customers` ✅ · org/tenant scoping ✅ · encryption map ✅ · `updated_at` + optimistic lock ✅ · commands with undo ✅ · zod validators ✅ · no hardcoded strings / status colors ✅
 
+## Implementation Notes (as built)
+
+- **Extras:**
+  - a `reservations.reservation.deleted` event (CRUD delete)
+  - an edit page
+  - a "Record payment" dialog
+  - CLI `demo:seed` next to `demo:reanchor-dates`
+- **Payments** default to `booked` when recorded.
+- **Timezone:** `daysToDeparture` uses the server timezone, because the platform has no per-organization timezone setting. Unit tests cover the midnight edges.
+- **Seed booking numbers:** ABC123, XYZ789, MLZ456, AUR901, SOL902, TWK310, JML501, JML502. People are created through `customers.people.create`, idempotent by email.
+- **AI tools:**
+  - On `ownerMatch` `mismatch` or `unknown` with a sender email given, the tool returns only `{ found, ownerMatch }`.
+  - Without a sender email, it returns the reservation with `ownerMatch: 'unknown'`.
+  - `get_details` exposes only the IBAN's last 4 digits.
+- **Injection:** the person tab targets the people-v2 page spot `detail:customers.person:tabs`. The legacy page uses `customers.person.detail:tabs` and is not targeted.
+- **Dialogs:** `CrudForm` handles Enter but not Cmd/Ctrl+Enter, so each dialog adds its own handler.
+- **Migration:** includes `buildEncryptionMapBackfillSql` for existing tenants.
+- **DI:** services are registered with `.proxy()`, because the container runs in CLASSIC injection mode.
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — English content, EUR demo amounts.
 - **2026-10-12** — Email lookup via the module's own hash; no `customers` change.
+- **2026-10-12** — Implementation notes from the Phase 1a build.
