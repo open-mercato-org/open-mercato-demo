@@ -7,6 +7,6 @@ export const RESERVATIONS_SERVICE = 'reservationsService' as const
 
 export function register(container: AppContainer) {
   container.register({
-    [RESERVATIONS_SERVICE]: asFunction(({ em }: { em: EntityManager }) => createReservationsService(em)).scoped(),
+    [RESERVATIONS_SERVICE]: asFunction(({ em }: { em: EntityManager }) => createReservationsService(em)).scoped().proxy(),
   })
 }
