@@ -242,4 +242,7 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+  // AI ticket triage glue for the travel demo (tickets, reservations,
+  // knowledge_articles stay AI-agnostic); it needs the orchestrator SDK.
+  enabledModules.push({ id: 'triage_agents', from: '@app' })
 }
