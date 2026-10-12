@@ -4,8 +4,10 @@ import {
   PROPOSAL_OPTION_LABEL_MAX,
   PROPOSAL_RATIONALE_MAX,
   agentProposalSchema,
+  proposalEvidenceSchema,
   proposedActionSchema,
   type AgentProposalPayload,
+  type ProposalEvidence,
   type ProposalOption,
   type ProposedAction,
 } from './validators'
@@ -42,14 +44,41 @@ function clampConfidence(value: unknown): number | undefined {
   return value
 }
 
+/**
+ * A malformed `citations` list never costs the action itself: the plan is what the
+ * operator decides on, the citations only explain it.
+ */
+function parseAction(entry: unknown): ProposedAction | null {
+  const parsed = proposedActionSchema.safeParse(entry)
+  if (parsed.success) return parsed.data
+  if (!isRecord(entry) || !('citations' in entry)) return null
+  const withoutCitations: Record<string, unknown> = { ...entry }
+  delete withoutCitations.citations
+  const retried = proposedActionSchema.safeParse(withoutCitations)
+  return retried.success ? retried.data : null
+}
+
 function readActions(value: unknown): ProposedAction[] {
   if (!Array.isArray(value)) return []
   const actions: ProposedAction[] = []
   for (const entry of value) {
-    const parsed = proposedActionSchema.safeParse(entry)
-    if (parsed.success) actions.push(parsed.data)
+    const action = parseAction(entry)
+    if (action) actions.push(action)
   }
   return actions
+}
+
+/**
+ * The envelope's optional grounding block. Kept only when it validates (bounds and
+ * the serialized size cap included); an invalid block is dropped rather than failing
+ * the proposal, by the same clamp-not-reject rule the rest of the envelope follows.
+ */
+export function readProposalEvidence(raw: unknown): ProposalEvidence | undefined {
+  const source = proposalPayloadSource(raw)
+  const value = source.kind === 'record' ? source.record.evidence : undefined
+  if (value === undefined || value === null) return undefined
+  const parsed = proposalEvidenceSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
 }
 
 function buildOption(raw: unknown, index: number, fallbackLabel: string): ProposalOption | null {
@@ -136,9 +165,11 @@ export function normalizeProposalEnvelope(raw: unknown, fallbackLabel?: string):
   if (source.kind !== 'record') return { options: [] }
   const record = source.record
   const rationale = clampText(record.rationale, PROPOSAL_RATIONALE_MAX)
+  const evidence = readProposalEvidence(record)
   const withRationale = (options: ProposalOption[]): AgentProposalPayload => ({
     options,
     ...(rationale !== undefined ? { rationale } : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
   })
 
   if (Array.isArray(record.options)) {

@@ -28,6 +28,8 @@ export type ActionEdit = {
   fields: EditableActionField[]
   /** Non-primitive payload entries, preserved verbatim on reassembly. */
   preserved: Record<string, unknown>
+  /** The agent's grounding refs for this action, carried through an edit untouched. */
+  citations?: string[]
 }
 
 const rawActionsSchema = z.array(proposedActionSchema)
@@ -58,7 +60,7 @@ export function deriveActionEdits(payload: unknown, selectedOptionId?: string | 
         preserved[key] = value
       }
     }
-    return { type: action.type, fields, preserved }
+    return { type: action.type, fields, preserved, ...(action.citations ? { citations: action.citations } : {}) }
   })
 }
 
@@ -76,6 +78,7 @@ export function actionEditsToActions(edits: ActionEdit[]): ProposedAction[] {
         }),
       ),
     },
+    ...(edit.citations ? { citations: edit.citations } : {}),
   }))
 }
 

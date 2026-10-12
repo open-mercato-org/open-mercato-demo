@@ -25,7 +25,20 @@ export type {
   InvokeAgentForWorkflowOutcome,
 } from './lib/runtime/invokeAgentForWorkflow'
 export { executeProposal } from './lib/runtime/executeProposal'
-export type { ExecuteProposalActionResult } from './lib/runtime/executeProposal'
+export type {
+  ExecuteProposalActionResult,
+  ExecuteProposalAuthorization,
+  ExecuteProposalCtx,
+} from './lib/runtime/executeProposal'
+export {
+  EXECUTE_APPROVED_PROPOSAL_FUNCTION,
+  executeApprovedProposalArgsSchema,
+} from './lib/runtime/executeApprovedProposal'
+export type {
+  ExecuteApprovedProposalArgs,
+  ExecuteApprovedProposalResult,
+  ExecutedActionResult,
+} from './lib/runtime/executeApprovedProposal'
 export {
   proposedActionSchema,
   proposalOptionSchema,

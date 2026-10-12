@@ -2,6 +2,11 @@ import { z, type ZodTypeAny } from 'zod'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 
+/** Bounds on the additive grounding fields (AO delta spec section F). */
+export const PROPOSAL_CITATION_REF_MAX = 300
+export const PROPOSAL_ACTION_CITATIONS_MAX = 50
+export const PROPOSAL_EVIDENCE_MAX_BYTES = 32 * 1024
+
 /**
  * A single proposed action emitted by a proposal agent. `payload` is shaped
  * per-agent via the agent's `result.schema`; the generic form keeps it open.
@@ -20,6 +25,12 @@ export const proposedActionSchema = z.object({
    * "nobody said".
    */
   risk: z.enum(['low', 'medium', 'high']).optional(),
+  /**
+   * References into the envelope's `evidence.citations[].ref` (or any stable source
+   * ref, e.g. `article@3#S2`) this action is grounded in. Additive; absent means the
+   * agent cited nothing for it.
+   */
+  citations: z.array(z.string().min(1).max(PROPOSAL_CITATION_REF_MAX)).max(PROPOSAL_ACTION_CITATIONS_MAX).optional(),
 })
 export type ProposedAction = z.infer<typeof proposedActionSchema>
 
@@ -61,9 +72,69 @@ export type ProposalOption = z.infer<typeof proposalOptionSchema>
  * Envelope `rationale` explains the option SET; why one option was ranked where it
  * was lives on the option itself.
  */
+export const proposalEvidenceCheckSchema = z.object({
+  key: z.string().min(1).max(200),
+  step: z.string().min(1).max(200).optional(),
+  passed: z.boolean(),
+  evidence: z.string().max(PROPOSAL_RATIONALE_MAX),
+})
+export type ProposalEvidenceCheck = z.infer<typeof proposalEvidenceCheckSchema>
+
+export const proposalEvidenceCitationSchema = z.object({
+  kind: z.string().min(1).max(100),
+  ref: z.string().min(1).max(PROPOSAL_CITATION_REF_MAX),
+  label: z.string().max(PROPOSAL_OPTION_LABEL_MAX).optional(),
+  steps: z.array(z.string().min(1).max(200)).max(PROPOSAL_ACTION_CITATIONS_MAX).optional(),
+  href: z.string().max(2000).optional(),
+})
+export type ProposalEvidenceCitation = z.infer<typeof proposalEvidenceCitationSchema>
+
+export const proposalEvidenceSegmentSchema = z.object({
+  source: z.enum(['template', 'generated']),
+  ref: z.string().min(1).max(PROPOSAL_CITATION_REF_MAX).optional(),
+  text: z.string(),
+})
+export type ProposalEvidenceSegment = z.infer<typeof proposalEvidenceSegmentSchema>
+
+export const proposalEvidenceUncertaintySchema = z.object({
+  code: z.string().min(1).max(100),
+  message: z.string().max(PROPOSAL_RATIONALE_MAX),
+  blocking: z.boolean().optional(),
+})
+export type ProposalEvidenceUncertainty = z.infer<typeof proposalEvidenceUncertaintySchema>
+
+function serializedByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value) ?? '').length
+}
+
+/**
+ * What a proposal is grounded in: the checks it ran, the sources it cites, how a
+ * drafted text splits into template and generated segments, and what it is unsure
+ * of. Optional and additive on the envelope; capped at
+ * {@link PROPOSAL_EVIDENCE_MAX_BYTES} serialized, because the payload column is
+ * encrypted and the decision card renders it in full.
+ */
+export const proposalEvidenceSchema = z
+  .object({
+    checks: z.array(proposalEvidenceCheckSchema).max(100).optional(),
+    citations: z.array(proposalEvidenceCitationSchema).max(100).optional(),
+    segments: z.array(proposalEvidenceSegmentSchema).max(200).optional(),
+    uncertainty: z.array(proposalEvidenceUncertaintySchema).max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (serializedByteLength(value) > PROPOSAL_EVIDENCE_MAX_BYTES) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `[internal] proposal evidence exceeds ${PROPOSAL_EVIDENCE_MAX_BYTES} bytes`,
+      })
+    }
+  })
+export type ProposalEvidence = z.infer<typeof proposalEvidenceSchema>
+
 export const agentProposalSchema = z.object({
   options: z.array(proposalOptionSchema).max(PROPOSAL_OPTIONS_MAX),
   rationale: z.string().max(PROPOSAL_RATIONALE_MAX).optional(),
+  evidence: proposalEvidenceSchema.optional(),
 })
 export type AgentProposalPayload = z.infer<typeof agentProposalSchema>
 
