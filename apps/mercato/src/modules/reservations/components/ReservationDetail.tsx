@@ -236,7 +236,7 @@ export function ReservationDetail({ id }: { id: string }) {
         <Section title={t('reservations.detail.sections.overview', 'Overview')}>
           <dl className="grid grid-cols-2 gap-3">
             <Field label={t('reservations.detail.fields.customer', 'Customer')}>
-              <Link className="text-primary hover:underline" href={`/backend/customers/people/${reservation.customerPersonId}`}>
+              <Link className="text-primary hover:underline" href={`/backend/customers/people-v2/${reservation.customerPersonId}`}>
                 {reservation.customerName ?? reservation.customerPersonId}
               </Link>
             </Field>
