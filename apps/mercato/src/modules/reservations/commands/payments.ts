@@ -88,7 +88,7 @@ const recordPaymentCommand: CommandHandler<PaymentRecordInput, { paymentId: stri
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(paymentRecordSchema, rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const reservation = await requireReservation(em, input.reservationId, scope)
     const currencyCode = input.currencyCode ?? reservation.currencyCode
@@ -131,8 +131,8 @@ const recordPaymentCommand: CommandHandler<PaymentRecordInput, { paymentId: stri
     }, { persistent: true, tenantId: scope.tenantId, organizationId: scope.organizationId })
     return { paymentId: payment.id, reservationId: reservation.id }
   },
-  captureAfter: async (_input, result, ctx) => {
-    const scope = resolveScope(ctx)
+  captureAfter: async (rawInput, result, ctx) => {
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const payment = await findOneWithDecryption(
       em,

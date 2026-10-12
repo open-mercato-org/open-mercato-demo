@@ -224,8 +224,8 @@ async function buildReservationLog(
   }
 }
 
-async function loadSnapshot(ctx: CommandRuntimeContext, id: string): Promise<ReservationSnapshot | null> {
-  const scope = resolveScope(ctx)
+async function loadSnapshot(ctx: CommandRuntimeContext, id: string, hints?: unknown): Promise<ReservationSnapshot | null> {
+  const scope = resolveScope(ctx, hints)
   const em = forkEm(ctx)
   const reservation = await findOneWithDecryption(
     em,
@@ -242,7 +242,7 @@ const createReservationCommand: CommandHandler<ReservationCreateInput, { reserva
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(reservationCreateSchema, rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const bookingNumber = requireNormalizedBookingNumber(input.bookingNumber)
     await assertBookingNumberAvailable(em, scope, bookingNumber)
@@ -277,7 +277,7 @@ const createReservationCommand: CommandHandler<ReservationCreateInput, { reserva
     await emitReservationCrud(ctx, 'created', reservation)
     return { reservationId: reservation.id }
   },
-  captureAfter: async (_input, result, ctx) => loadSnapshot(ctx, result.reservationId),
+  captureAfter: async (rawInput, result, ctx) => loadSnapshot(ctx, result.reservationId, rawInput),
   buildLog: async ({ result, snapshots }) =>
     buildReservationLog('reservations.audit.reservation.create', 'Create reservation', result.reservationId, snapshots),
   undo: async ({ logEntry, ctx }) => {
@@ -301,11 +301,11 @@ const updateReservationCommand: CommandHandler<ReservationUpdateInput, { reserva
   isUndoable: true,
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(reservationUpdateSchema, rawInput)
-    return { before: await loadSnapshot(ctx, input.id) }
+    return { before: await loadSnapshot(ctx, input.id, rawInput) }
   },
   async execute(rawInput, ctx) {
     const input = parseCommandInput(reservationUpdateSchema, rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const reservation = await requireReservation(em, input.id, scope)
     await enforceReservationsOptimisticLock(ctx, reservation, RESERVATION_RESOURCE_KIND)
@@ -356,7 +356,7 @@ const updateReservationCommand: CommandHandler<ReservationUpdateInput, { reserva
     await emitReservationCrud(ctx, 'updated', reservation)
     return { reservationId: reservation.id }
   },
-  captureAfter: async (_input, result, ctx) => loadSnapshot(ctx, result.reservationId),
+  captureAfter: async (rawInput, result, ctx) => loadSnapshot(ctx, result.reservationId, rawInput),
   buildLog: async ({ result, snapshots }) =>
     buildReservationLog('reservations.audit.reservation.update', 'Update reservation', result.reservationId, snapshots),
   undo: async ({ logEntry, ctx }) => {
@@ -384,10 +384,10 @@ function readDeleteId(rawInput: unknown): string {
 const deleteReservationCommand: CommandHandler<ReservationDeleteInput | Record<string, unknown>, { reservationId: string }> = {
   id: 'reservations.reservation.delete',
   isUndoable: true,
-  prepare: async (rawInput, ctx) => ({ before: await loadSnapshot(ctx, readDeleteId(rawInput)) }),
+  prepare: async (rawInput, ctx) => ({ before: await loadSnapshot(ctx, readDeleteId(rawInput), rawInput) }),
   async execute(rawInput, ctx) {
     const id = readDeleteId(rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const reservation = await requireReservation(em, id, scope)
     await enforceReservationsOptimisticLock(ctx, reservation, RESERVATION_RESOURCE_KIND)

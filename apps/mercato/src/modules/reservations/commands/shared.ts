@@ -32,9 +32,14 @@ export function parseCommandInput<T>(schema: z.ZodType<T>, rawInput: unknown): T
   return result.data
 }
 
-export function resolveScope(ctx: CommandRuntimeContext): ReservationScope {
-  const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+function readHint(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+export function resolveScope(ctx: CommandRuntimeContext, hints?: unknown): ReservationScope {
+  const hintRecord = hints && typeof hints === 'object' ? (hints as Record<string, unknown>) : {}
+  const tenantId = ctx.auth?.tenantId ?? readHint(hintRecord.tenantId)
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? readHint(hintRecord.organizationId)
   if (!tenantId) throw new CrudHttpError(400, { error: '[internal] tenant scope required for reservations command' })
   if (!organizationId) throw new CrudHttpError(400, { error: '[internal] organization scope required for reservations command' })
   ensureTenantScope(ctx, tenantId)
@@ -46,7 +51,7 @@ export function resolveUndoScope(
   ctx: CommandRuntimeContext,
   snapshot: { tenantId?: string | null; organizationId?: string | null } | null | undefined,
 ): ReservationScope {
-  const scope = resolveScope(ctx)
+  const scope = resolveScope(ctx, snapshot)
   if (snapshot?.tenantId && snapshot.tenantId !== scope.tenantId) {
     throw new CrudHttpError(403, { error: 'reservations.errors.forbidden' })
   }

@@ -130,8 +130,8 @@ async function emitStatusChanged(refund: ReservationRefund, fromStatus: RefundSt
   }, { persistent: true, tenantId: refund.tenantId, organizationId: refund.organizationId })
 }
 
-async function captureRefund(ctx: CommandRuntimeContext, refundId: string): Promise<RefundSnapshot | null> {
-  const scope = resolveScope(ctx)
+async function captureRefund(ctx: CommandRuntimeContext, refundId: string, hints?: unknown): Promise<RefundSnapshot | null> {
+  const scope = resolveScope(ctx, hints)
   const refund = await loadRefund(forkEm(ctx), refundId, scope)
   return refund ? serializeRefund(refund) : null
 }
@@ -172,7 +172,7 @@ const requestRefundCommand: CommandHandler<RefundRequestInput, RefundRequestResu
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(refundRequestSchema, rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const iban = normalizeIban(input.bankAccountNumber)
     if (!isValidIban(iban)) {
       throw new CrudHttpError(422, {
@@ -250,7 +250,7 @@ const requestRefundCommand: CommandHandler<RefundRequestInput, RefundRequestResu
       status: refund.status,
     }
   },
-  captureAfter: async (_input, result, ctx) => captureRefund(ctx, result.refundId),
+  captureAfter: async (rawInput, result, ctx) => captureRefund(ctx, result.refundId, rawInput),
   buildLog: async ({ result, snapshots }) =>
     buildRefundLog('reservations.audit.refund.request', 'Request refund', result, snapshots),
   undo: async ({ logEntry, ctx }) => {
@@ -280,11 +280,11 @@ const transitionRefundCommand: CommandHandler<RefundTransitionInput, { refundId:
   isUndoable: true,
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(refundTransitionSchema, rawInput)
-    return { before: await captureRefund(ctx, input.id) }
+    return { before: await captureRefund(ctx, input.id, rawInput) }
   },
   async execute(rawInput, ctx) {
     const input = parseCommandInput(refundTransitionSchema, rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, rawInput)
     const em = forkEm(ctx)
     const refund = await requireRefund(em, input.id, scope)
     await enforceReservationsOptimisticLock(ctx, refund, RESERVATION_REFUND_RESOURCE_KIND)
@@ -303,7 +303,7 @@ const transitionRefundCommand: CommandHandler<RefundTransitionInput, { refundId:
     await emitStatusChanged(refund, fromStatus, input.to)
     return { refundId: refund.id, reservationId: refund.reservationId, status: refund.status }
   },
-  captureAfter: async (_input, result, ctx) => captureRefund(ctx, result.refundId),
+  captureAfter: async (rawInput, result, ctx) => captureRefund(ctx, result.refundId, rawInput),
   buildLog: async ({ result, snapshots }) =>
     buildRefundLog('reservations.audit.refund.transition', 'Change refund status', result, snapshots),
   undo: async ({ logEntry, ctx }) => {
