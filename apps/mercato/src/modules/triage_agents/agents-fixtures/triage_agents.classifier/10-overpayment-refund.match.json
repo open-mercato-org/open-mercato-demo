@@ -1,0 +1,55 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.ticket.subject": {
+      "contains": "overpayment"
+    },
+    "tools.knowledge_articles.get_article.found": true
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "payments.refunds.overpayment_refund"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "categoryKey": "payments",
+      "subcategoryKey": "payments.refunds",
+      "topicKey": "payments.refunds.overpayment_refund",
+      "topicVersion": "{{tools.knowledge_articles.get_article.version}}",
+      "summary": "The customer reports paying booking {{input.identification.reservation.bookingNumber}} twice and asks for the overpayment to be refunded. An IBAN was provided for the refund.",
+      "intent": "refund an overpayment",
+      "urgencySignal": "none",
+      "urgencyEvidence": null,
+      "automationLevel": "{{tools.knowledge_articles.get_article.article.automationLevel}}",
+      "extracted": {
+        "refundAmount": null,
+        "bankAccount": "{{tools.tickets.get_ticket.articles.0.body | match:([A-Z]{2}[0-9]{2}[A-Z0-9 ]{12,32}[A-Z0-9])}}",
+        "paymentDate": null
+      },
+      "uncertainty": [],
+      "confidence": 0.93
+    }
+  },
+  "usage": {
+    "inputTokens": 2100,
+    "outputTokens": 240
+  }
+}

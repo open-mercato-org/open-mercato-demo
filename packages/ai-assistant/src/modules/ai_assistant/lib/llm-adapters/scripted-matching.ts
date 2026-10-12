@@ -49,8 +49,8 @@ export type ScriptedMatcher = z.infer<typeof scalarSchema> | ScriptedMatcherOper
 
 export const scriptedMatchRulesSchema = z.record(z.string().min(1), z.unknown())
 
-const PLACEHOLDER = /\{\{\s*([\s\S]+?)\s*\}\}/g
-const WHOLE_PLACEHOLDER = /^\{\{\s*([\s\S]+?)\s*\}\}$/
+const PLACEHOLDER = /\{\{\s*((?:(?!\{\{|\}\})[\s\S])+?)\s*\}\}/g
+const WHOLE_PLACEHOLDER = /^\{\{\s*((?:(?!\{\{|\}\})[\s\S])+?)\s*\}\}$/
 
 type PathResolution = { status: 'found'; value: unknown } | { status: 'missing' } | { status: 'deferred' }
 

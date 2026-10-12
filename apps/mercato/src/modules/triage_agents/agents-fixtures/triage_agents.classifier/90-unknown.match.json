@@ -1,0 +1,59 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.found": true,
+    "tools.knowledge_articles.get_article.found": true
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "general.identification.unknown_booking"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "categoryKey": "general",
+      "subcategoryKey": "general.identification",
+      "topicKey": "general.identification.unknown_booking",
+      "topicVersion": "{{tools.knowledge_articles.get_article.version}}",
+      "summary": "The request could not be matched to a specific service topic.",
+      "intent": "unclear request",
+      "urgencySignal": "none",
+      "urgencyEvidence": null,
+      "automationLevel": "{{tools.knowledge_articles.get_article.article.automationLevel}}",
+      "extracted": {
+        "refundAmount": null,
+        "bankAccount": null,
+        "paymentDate": null
+      },
+      "uncertainty": [
+        {
+          "code": "topic_unclear",
+          "message": "No knowledge base topic fits the message with enough confidence.",
+          "blocking": true
+        }
+      ],
+      "confidence": 0.45
+    }
+  },
+  "usage": {
+    "inputTokens": 2100,
+    "outputTokens": 240
+  }
+}

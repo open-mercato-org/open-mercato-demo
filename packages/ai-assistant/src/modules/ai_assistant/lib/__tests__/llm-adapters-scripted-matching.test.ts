@@ -187,6 +187,8 @@ describe('scripted matching helpers', () => {
       amount: 350,
       fallback: 'n/a',
     })
+    expect(renderScriptedTemplate('{{input.ticketId}}, {{input.tags[0]}}', scope)).toBe('T-1, a')
+    expect(renderScriptedTemplate('{{input.ticketId | match:^T-([0-9]{1,3})$}}', scope)).toBe('1')
   })
 
   it('collects tool results from text, json and content outputs', () => {

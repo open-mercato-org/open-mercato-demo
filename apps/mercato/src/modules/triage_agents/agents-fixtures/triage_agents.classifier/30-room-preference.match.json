@@ -1,0 +1,55 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.articles.0.body": {
+      "contains": "quiet"
+    },
+    "tools.knowledge_articles.get_article.found": true
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "booking.special_requests.room_preference"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "categoryKey": "booking",
+      "subcategoryKey": "booking.special_requests",
+      "topicKey": "booking.special_requests.room_preference",
+      "topicVersion": "{{tools.knowledge_articles.get_article.version}}",
+      "summary": "The customer asks for a room in a quiet part of the hotel for booking {{input.identification.reservation.bookingNumber}}.",
+      "intent": "room preference",
+      "urgencySignal": "none",
+      "urgencyEvidence": null,
+      "automationLevel": "{{tools.knowledge_articles.get_article.article.automationLevel}}",
+      "extracted": {
+        "refundAmount": null,
+        "bankAccount": null,
+        "paymentDate": null
+      },
+      "uncertainty": [],
+      "confidence": 0.9
+    }
+  },
+  "usage": {
+    "inputTokens": 2100,
+    "outputTokens": 240
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "match": {
+    "input.classification.topicKey": "payments.incoming.payment_confirmation",
+    "tools.knowledge_articles.get_article.found": true,
+    "tools.reservations.get_details.balance.paidTotal": {
+      "lte": 0
+    }
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "{{input.classification.topicKey}}",
+            "version": "{{input.classification.topicVersion}}"
+          }
+        },
+        {
+          "toolName": "reservations.get_details",
+          "input": {
+            "reservationId": "{{input.identification.reservation.reservationId}}"
+          }
+        },
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "proposal",
+    "proposal": {
+      "options": [],
+      "rationale": "The required check payment_booked failed: no booked payment is visible on the reservation yet.",
+      "evidence": {
+        "checks": [
+          {
+            "key": "payment_booked",
+            "step": "S1",
+            "passed": false,
+            "evidence": "No booked payment on {{tools.reservations.get_details.reservation.bookingNumber}}; pending payments {{tools.reservations.get_details.balance.pendingPaymentsTotal}} {{tools.reservations.get_details.balance.currencyCode}}."
+          }
+        ],
+        "citations": [
+          {
+            "kind": "kb",
+            "ref": "{{tools.knowledge_articles.get_article.citation}}",
+            "label": "{{tools.knowledge_articles.get_article.article.category.name}} › {{tools.knowledge_articles.get_article.article.subcategory.name}} › {{tools.knowledge_articles.get_article.article.title}} (v{{tools.knowledge_articles.get_article.version}})",
+            "steps": [
+              "S1",
+              "S4"
+            ]
+          }
+        ],
+        "segments": [],
+        "uncertainty": [
+          {
+            "code": "payment_not_visible",
+            "message": "The customer's payment is not booked on the reservation yet; a consultant has to check the bank statement.",
+            "blocking": true
+          }
+        ]
+      }
+    }
+  },
+  "usage": {
+    "inputTokens": 3200,
+    "outputTokens": 520
+  }
+}

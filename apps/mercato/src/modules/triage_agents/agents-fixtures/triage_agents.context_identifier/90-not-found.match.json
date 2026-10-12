@@ -1,0 +1,33 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.found": true
+  },
+  "steps": [
+    { "toolCalls": [{ "toolName": "tickets.get_ticket", "input": { "ticketId": "{{input.ticketId}}" } }] },
+    {
+      "toolCalls": [
+        { "toolName": "reservations.list_for_customer", "input": { "email": "{{tools.tickets.get_ticket.ticket.requesterEmail}}" } }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "customer": { "personId": null, "match": "not_found" },
+      "reservation": {
+        "reservationId": null,
+        "bookingNumber": null,
+        "match": "not_found",
+        "candidates": [],
+        "departureDate": null,
+        "daysToDeparture": null
+      },
+      "evidence": [],
+      "uncertainty": [
+        { "code": "context_not_found", "message": "No reservation or booking number could be matched to the sender.", "blocking": true }
+      ],
+      "confidence": 0.4
+    }
+  },
+  "usage": { "inputTokens": 1210, "outputTokens": 150 }
+}

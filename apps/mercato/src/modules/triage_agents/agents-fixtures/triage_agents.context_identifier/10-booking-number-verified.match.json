@@ -1,0 +1,45 @@
+{
+  "match": {
+    "input.ticketId": { "exists": true },
+    "tools.tickets.get_ticket.ticket.subject": { "matches": "\\b[A-Z]{3}[0-9]{3}\\b" },
+    "tools.reservations.find_by_booking_number.ownerMatch": "match"
+  },
+  "steps": [
+    { "toolCalls": [{ "toolName": "tickets.get_ticket", "input": { "ticketId": "{{input.ticketId}}" } }] },
+    {
+      "toolCalls": [
+        {
+          "toolName": "reservations.find_by_booking_number",
+          "input": {
+            "bookingNumber": "{{tools.tickets.get_ticket.ticket.subject | match:\\b([A-Z]{3}[0-9]{3})\\b}}",
+            "senderEmail": "{{tools.tickets.get_ticket.ticket.requesterEmail}}"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "customer": {
+        "personId": "{{tools.reservations.find_by_booking_number.reservation.customerPersonId}}",
+        "match": "confirmed"
+      },
+      "reservation": {
+        "reservationId": "{{tools.reservations.find_by_booking_number.reservation.id}}",
+        "bookingNumber": "{{tools.reservations.find_by_booking_number.reservation.bookingNumber}}",
+        "match": "explicit_number_verified",
+        "candidates": [],
+        "departureDate": "{{tools.reservations.find_by_booking_number.reservation.departureDate}}",
+        "daysToDeparture": "{{tools.reservations.find_by_booking_number.reservation.daysToDeparture}}"
+      },
+      "evidence": [
+        { "source": "ticket", "quote": "{{tools.tickets.get_ticket.ticket.subject}}" },
+        { "source": "crm", "quote": "Booking {{tools.reservations.find_by_booking_number.reservation.bookingNumber}} exists and its owner email matches the sender." }
+      ],
+      "uncertainty": [],
+      "confidence": 0.96
+    }
+  },
+  "usage": { "inputTokens": 1450, "outputTokens": 210 }
+}

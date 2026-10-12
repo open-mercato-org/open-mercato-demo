@@ -1,0 +1,49 @@
+{
+  "match": {
+    "input.ticketId": {
+      "exists": true
+    }
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "{{input.classification.topicKey}}"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "proposal",
+    "proposal": {
+      "options": [],
+      "rationale": "The article's checks could not be completed for this ticket.",
+      "evidence": {
+        "checks": [],
+        "citations": [
+          {
+            "kind": "kb",
+            "ref": "{{input.classification.topicKey}}@{{input.classification.topicVersion | default:1}}",
+            "label": "{{input.classification.topicKey}}",
+            "steps": []
+          }
+        ],
+        "segments": [],
+        "uncertainty": [
+          {
+            "code": "no_proposal",
+            "message": "No recommended action of the article applies to this ticket.",
+            "blocking": true
+          }
+        ]
+      }
+    }
+  },
+  "usage": {
+    "inputTokens": 3200,
+    "outputTokens": 520
+  }
+}
