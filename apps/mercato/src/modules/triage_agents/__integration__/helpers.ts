@@ -145,7 +145,7 @@ const KB_TOPICS: KbTopicSeed[] = [
 ]
 
 type TaxonomyResponse = {
-  categories?: Array<{ id: string; key: string; subcategories?: Array<{ id: string; key: string; topics?: Array<{ key: string }> }> }>
+  items?: Array<{ id: string; key: string; subcategories?: Array<{ id: string; key: string; topics?: Array<{ key: string }> }> }>
 }
 
 async function createCategory(request: APIRequestContext, token: string, data: Record<string, unknown>, fixtures: Fixtures): Promise<string> {
@@ -166,7 +166,7 @@ export async function ensureKnowledgeBase(request: APIRequestContext, token: str
   const taxonomy = await readJsonSafe<TaxonomyResponse>(response)
   const categoryIds = new Map<string, string>()
   const topics = new Set<string>()
-  for (const category of taxonomy?.categories ?? []) {
+  for (const category of taxonomy?.items ?? []) {
     categoryIds.set(category.key, category.id)
     for (const subcategory of category.subcategories ?? []) {
       categoryIds.set(subcategory.key, subcategory.id)

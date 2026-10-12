@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { proposalEvidenceSchema } from '@open-mercato/enterprise/modules/agent_orchestrator/data/validators'
 import { TRIAGE_PRIORITIES } from '../lib/priorityPolicy'
 import { containsIban } from '../lib/pii'
 import {
@@ -202,7 +203,13 @@ export const advisorEvidenceSchema = z.object({
     .array(
       z.object({
         source: z.enum(['template', 'generated']),
-        ref: z.string().trim().regex(KB_CITATION_PATTERN).nullable(),
+        ref: z
+          .string()
+          .trim()
+          .regex(KB_CITATION_PATTERN)
+          .nullable()
+          .optional()
+          .transform((value) => value ?? undefined),
         text: z.string().min(1).max(5000),
       }),
     )
@@ -222,6 +229,15 @@ export const advisorProposalSchema = z
     evidence: advisorEvidenceSchema,
   })
   .superRefine((value, ctx) => {
+    const envelopeEvidence = proposalEvidenceSchema.safeParse(value.evidence)
+    if (!envelopeEvidence.success) {
+      const issue = envelopeEvidence.error.issues[0]
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence', ...(issue?.path ?? []).map((segment) => (typeof segment === 'symbol' ? String(segment) : segment))],
+        message: `The evidence block would be dropped by the proposal envelope: ${issue?.message ?? 'invalid'}`,
+      })
+    }
     const citedBases = new Set(value.evidence.citations.map((citation) => citationBase(citation.ref)))
     value.options.forEach((option, optionIndex) => {
       const types = option.actions.map((action) => action.type)

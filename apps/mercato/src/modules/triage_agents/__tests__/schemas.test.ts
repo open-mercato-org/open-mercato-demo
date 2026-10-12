@@ -5,6 +5,7 @@ import {
   resolutionAdvisorResultSchema,
 } from '../data/validators'
 import { containsIban, maskBankAccount } from '../lib/pii'
+import { normalizeProposalEnvelope, readProposalEvidence } from '@open-mercato/enterprise/modules/agent_orchestrator/data/proposalEnvelope'
 
 const TICKET_ID = '11111111-1111-4111-8111-111111111111'
 const PERSON_ID = '22222222-2222-4222-8222-222222222222'
@@ -135,6 +136,15 @@ describe('resolution advisor result schema', () => {
   it('accepts a grounded proposal', () => {
     const result = resolutionAdvisorResultSchema.safeParse(proposal())
     expect(result.error?.issues ?? []).toEqual([])
+  })
+
+  it('survives the AO envelope normalization with its evidence block', () => {
+    const parsed = resolutionAdvisorResultSchema.parse(resolutionAdvisorResultSchema.parse(proposal()))
+    const normalized = normalizeProposalEnvelope(parsed.proposal, 'triage')
+    const evidence = readProposalEvidence(normalized)
+    expect(evidence?.checks).toHaveLength(3)
+    expect(evidence?.segments?.[1]).toEqual({ source: 'generated', text: 'Thank you for your patience.' })
+    expect(normalized.options[0].actions[0].citations).toEqual([`${ARTICLE}#S4`])
   })
 
   it('rejects an action without citations', () => {

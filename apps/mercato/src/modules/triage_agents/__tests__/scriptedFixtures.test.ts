@@ -18,6 +18,8 @@ import { TRIAGE_SCENARIOS, type TriageScenario } from '../lib/scenarios'
 import { decideRoute } from '../lib/routePolicy'
 import { verifyProposalGrounding } from '../lib/grounding'
 import { toArticlePolicy } from '../lib/kbArticles'
+import { normalizeProposalEnvelope, readProposalEvidence } from '@open-mercato/enterprise/modules/agent_orchestrator/data/proposalEnvelope'
+import { proposalEvidenceSchema } from '@open-mercato/enterprise/modules/agent_orchestrator/data/validators'
 
 const FIXTURES_DIR = path.join(__dirname, '..', 'agents-fixtures')
 const INPUT_KEY = 'f'.repeat(64)
@@ -230,6 +232,10 @@ describe('scripted triage fixtures replay the six demo scenarios', () => {
       resolutionAdvisorResultSchema,
     )
     expect(advice.proposal.options).toHaveLength(expected.options)
+    const reparsed = resolutionAdvisorResultSchema.parse(advice)
+    const evidence = readProposalEvidence(normalizeProposalEnvelope(reparsed.proposal, 'triage'))
+    expect(proposalEvidenceSchema.safeParse(reparsed.proposal.evidence).error?.issues ?? []).toEqual([])
+    expect(evidence?.citations?.length).toBeGreaterThan(0)
     const verdict = await verifyProposalGrounding(advice.proposal, async (key, version) =>
       ARTICLES[key] && version === 3 ? toArticlePolicy(key, 3, articleSnapshot(key)) : null,
     )
