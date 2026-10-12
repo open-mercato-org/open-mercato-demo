@@ -249,7 +249,16 @@ Six golden cases (one per persona) seeded as AO eval cases for the three agents,
 ## Final Compliance Report
 Module id plural ✅ · no business data / FK ids only ✅ · writes only via workflow-safe commands after disposition ✅ · agents read-only ✅ · `allowedActions` fail-closed ✅ · scoping in projection and enricher ✅ · i18n / DS tokens ✅ · enterprise-dependent → enterprise spec dir ✅ · soft-optional AO seed ✅
 
+## Phase 3 Consequences (AO runtime delta as built)
+
+- **Scripted runs and provider pinning:** the scripted provider (`OM_AI_PROVIDER=scripted`) does **not** override pinned providers. The triage agents MUST NOT set `defaultProvider` or a slash-qualified `defaultModel`. Alternatively, rehearsals set `OM_AI_TRIAGE_AGENTS_PROVIDER=scripted`. Fixtures live in `apps/mercato/src/modules/triage_agents/agents-fixtures/<agentId>/<inputKey>.json` (`inputKey` = `canonicalInputKey(input)`) and are registered via `registerScriptedLlmFixtureDirs()`.
+- **Effector function preconditions:** `execute_approved_proposal` **throws** when the proposal is missing, not approved, or has no selected option, so the activity retry policy applies. Command failures come back as `ok: false`, so the transition after the effector branches on `{{context...result.ok}}`.
+- **Auto-approval:** an `auto_approved` disposition also executes. The advisor uses `alwaysAsk`, so for this demo the human path is the only path.
+- **Idempotency:** execution results are recorded on a `system` span of the proposing run (`proposal-execution:<proposalId>`). The flow trace (AO Phase B) shows it as the effector node.
+- **Evidence:** read with `readProposalEvidence(payload)`; per-action `citations?: string[]`; 32 KB cap (an oversized block is dropped, not truncated).
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — KB grounding section (citations, guardrail, draft segments, demo proof); English output; external-node stub removed.
 - **2026-10-12** — Aligned with code research: trigger `config.contextMapping` + `sourceExpression: 'id'`, `alwaysAsk`, outcome handles (`researcher` for none_proposed), subject on INVOKE_AGENT, flow located via the projection, effector = AO `execute_approved_proposal`, evidence block, grounding via ContextModule + fallback, scripted provider.
+- **2026-10-12** — Recorded consequences of the AO runtime delta (scripted provider precedence, effector preconditions, idempotency span, evidence helper).
