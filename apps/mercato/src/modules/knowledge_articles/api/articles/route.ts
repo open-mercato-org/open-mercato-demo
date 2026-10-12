@@ -39,6 +39,7 @@ const querySchema = z
     sortField: z.enum(['title', 'key', 'status', 'automationLevel', 'version', 'createdAt', 'updatedAt']).optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     categoryId: z.string().uuid().optional(),
+    categoryIds: z.string().optional(),
     key: z.string().trim().max(160).optional(),
     status: knowledgeArticleStatusSchema.optional(),
     automationLevel: knowledgeAutomationLevelSchema.optional(),
@@ -204,6 +205,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       }
       if (query.id) filters.id = query.id
       if (query.categoryId) filters.category_id = query.categoryId
+      if (isIdsParamProvided(query.categoryIds)) {
+        const categoryIds = parseIdsParam(query.categoryIds)
+        filters.category_id = categoryIds.length ? { $in: categoryIds } : { $eq: NO_MATCH_ID }
+      }
       if (query.key) filters.key = query.key
       if (query.status) filters.status = query.status
       if (query.automationLevel) filters.automation_level = query.automationLevel
