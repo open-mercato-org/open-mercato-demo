@@ -1,6 +1,6 @@
 # Agent Orchestrator — Process Flow Trace, Replay & Embeddable Decision Card
 
-> **Status:** Draft · **Date:** 2026-10-12 · **Package:** `packages/enterprise/src/modules/agent_orchestrator`
+> **Status:** In progress (Phase E/F/G implemented; A–C pending) · **Date:** 2026-10-12 · **Package:** `packages/enterprise/src/modules/agent_orchestrator`
 > **Driven by:** [`../../2026-10-12-travel-ticket-triage-demo.md`](../../2026-10-12-travel-ticket-triage-demo.md) (demo Steps 5–6) · **Consumer:** [`../2026-10-12-triage-agents-module.md`](../2026-10-12-triage-agents-module.md)
 > **Builds on:** `00-IMPLEMENTED-BASELINE.md`, `2026-09-06-business-process-workflow-unification.md` (ProcessInstance projection, subject facets), the per-run trace page, `POST /runs/:id/rerun`
 
@@ -79,18 +79,37 @@
      - It executes through the command bus with the workflow's scoped ctx and returns `{ ok, results: [{ type, commandId, status: 'ok'|'error'|'skipped', error? }] }`.
      - It is idempotent per proposal: a second call returns the recorded results.
 - **Events:** `agent_orchestrator.proposal.executed` (with `clientBroadcast: true`) carrying the results.
+- **As implemented (Phase E):**
+  - Signal payload: `{ proposalId, stepId, disposition, selectedOptionId: string | null, proposalPayload }`.
+  - `executeProposal(actions, ctx)` gains `stopOnFailure?: boolean` and `authorizeCommand?: (commandId) => Promise<{ allowed: true } | { allowed: false, reason }>`. Both are optional, so existing callers behave as before. With `stopOnFailure`, every action is gated first (mapping, vocabulary, authorization). One blocked action means nothing runs. After a command error, the remaining actions are `skipped`. The `UPDATE_ENTITY`-equivalent gate is `lib/runtime/workflowCommandAuthorizer.ts`: the command is workflow-safe, the tenant has enabled it, and the workflow user holds its `requiredFeatures`. It fails closed when there is no user, no catalogue or no `rbacService`.
+  - The function is `lib/runtime/executeApprovedProposal.ts`. It is registered in `di.ts` (DI value plus a `registerWorkflowFunctions` descriptor with the label key `agent_orchestrator.workflowFunctions.executeApprovedProposal`). Its args are `{ proposalId: uuid, stopOnFailure?: boolean | 'true'/'false' (default true), actionCommandMap?: Record<type, commandId> }`. Types the map does not list fall back to the identity mapping.
+  - Executable dispositions are `approved | edited | auto_approved`. The auto-approve path runs the same effector step. `pending`, `rejected`, `none_proposed`, `source = 'eval'`, a missing row or a missing `selected_option_id` all throw `[internal] …`. The proposal is loaded with `findOneWithDecryption` scoped to the workflow instance's tenant and organization. If the agent is no longer registered, its `allowedActions` is `[]`, so nothing runs.
+  - Return value: `{ ok, proposalId, selectedOptionId, replayed, results: [{ type, commandId, status: 'ok'|'error'|'skipped', error? }] }`. A `skipped` result carries its reason in `error`, clamped to 500 characters. `ok` is true only when every action returned `ok`. Command failures are returned, not thrown, so the workflow can branch on `result.ok`.
+  - **Idempotency storage (no schema change):** the execution is claimed by inserting a `system` `AgentSpan` on the proposing run, with `external_span_id = proposal-execution:<proposalId>` and name `agent_orchestrator.proposal.execute`. The existing unique `agent_spans_run_external_uq` makes the claim race-safe. The final `{ state, ok, results }` is recorded in the span's `attributes`, and the span status is `ok` or `error`. A repeat call replays the recorded results (`replayed: true`). A claim still `running` throws, so the activity retry policy can return after the first call finishes; the plan never runs twice. The span also gives Phase B a ready-made effector node. We did not add a column because the module's migrations are squash-only, and a new column would have forced a re-squash that breaks databases already on the current squash.
+  - Event payload: `{ proposalId, selectedOptionId, ok, results, agentId, runId, workflowInstanceId, tenantId, organizationId }`. It is emitted once per real execution, never on a replay.
 
 ### F. Evidence envelope
 
 - **Problem:** `normalizeProposalEnvelope` re-parses the agent output into `{ options, rationale }` and drops every other field.
 - **Change:** an additive optional `evidence?: { checks?: { key, step?, passed, evidence }[], citations?: { kind, ref, label?, steps?, href? }[], segments?: { source: 'template'|'generated', ref?, text }[], uncertainty?: { code, message, blocking? }[] }` on the envelope schema (`AO/data/validators.ts`). It is preserved by `normalizeProposalEnvelope` and `reassembleProposalPayload`. Per-action `citations?: string[]` is also allowed on `proposedActionSchema`. Size cap: 32 KB, validated.
 - This feeds the decision card's citations panel (§A) and the flow trace.
+- **As implemented (Phase F):** the schemas are `proposalEvidenceSchema` and its parts in `data/validators.ts`, with the limits exported as constants. `PROPOSAL_EVIDENCE_MAX_BYTES = 32768` is the UTF-8 length of the serialized block. Citation refs are at most 300 characters, with at most 50 per action. `agentProposalSchema.evidence` is optional, so the agent result contract and `proposals.create` accept it and keep it. `normalizeProposalEnvelope` keeps a valid block and drops an invalid or oversized one (clamp, not reject). An action with a malformed `citations` list keeps the action and loses only the citations. `readProposalEvidence(payload)` reads the block from a stored payload, whether it is an object or decrypted JSON text. `replaceOptionActions`, and therefore `reassembleProposalPayload`, keep the evidence. `deriveActionEdits` / `actionEditsToActions` carry each action's `citations` through a structured edit.
 
 ### G. Scripted LLM provider
 
 - An `LlmProvider` registered in `llmProviderRegistry` (`packages/shared/src/lib/ai/llm-provider-registry.ts`) under the id `scripted`. It is active only when `OM_AI_PROVIDER=scripted` and never in production builds (guarded by `NODE_ENV !== 'production'` or the explicit `OM_AI_SCRIPTED_ALLOW=1`).
 - `createModel` returns an AI-SDK mock model that answers from fixture files `<module>/agents-fixtures/<agentId>/<inputKey>.json`. `inputKey` = AO's `canonicalInputKey(input)`. Fixtures can script tool calls first, so traces contain real tool-call spans.
 - An unknown input → a deterministic error (`scripted_fixture_missing`), never a silent fallback to a real model.
+- **As implemented (Phase G):**
+  - **Location:** `@open-mercato/ai-assistant` → `lib/llm-adapters/scripted.ts`. It sits next to the other `LlmProvider` adapters and registers in `llm-bootstrap.ts`, the one place that fills `llmProviderRegistry`. `shared` holds only the port and must not depend on `ai`. AO is enterprise, and the provider is generic: chat agents can use it too.
+  - **Registration:** the provider is registered only when `isScriptedLlmProviderEnabled(process.env)` is true at bootstrap, so it never appears in a real deployment's provider list. `isConfigured`, `resolveApiKey` and `createModel` re-check the guard each time.
+  - **Model:** the model is a `MockLanguageModelV4` from `ai/test` (AI SDK 7), and `doStream` replays the same answer as stream parts.
+  - **Fixture roots:** `OM_AI_SCRIPTED_FIXTURES_DIR` (separated by `path.delimiter`; relative paths resolve against the working directory) plus `registerScriptedLlmFixtureDirs([...])`. A module registers its `agents-fixtures/` directory this way.
+  - **Fixture file:** `<root>/<agentId>/<inputKey>.json` = `{ steps?: [{ toolCalls: [{ toolName, input? }] }], object? | text?, usage?: { inputTokens?, outputTokens? } }`. Steps play one per assistant turn, only when the call offers tools, so one fixture serves both the tool loop and a single-shot `generateObject`. A dotted tool name maps to the SDK's `__` form. The tools really execute, so native trace capture records real tool spans.
+  - **Fixture key:** `agentId` and `inputKey` come from an `AsyncLocalStorage` binding, `withScriptedLlmContext({ agentId, inputKey }, fn)` in `lib/llm-adapters/scripted-context.ts`. AO's `NativeAgentRunner` binds `canonicalInputKey(input)` around `runAiAgentObject`. A call made without a binding uses agent `_default` with the SHA-256 of the last user message.
+  - **Errors:** `ScriptedLlmFixtureError` with `code` `scripted_fixture_missing` (also used for an unsafe path segment) or `scripted_fixture_invalid`.
+  - **Limitation:** the model-factory precedence is unchanged (the ai-assistant guide says to ask first before changing it). `OM_AI_PROVIDER=scripted` is the lowest provider-axis tier. An agent `defaultProvider`, a slash-qualified `defaultModel`, `OM_AI_<MODULE>_PROVIDER` or a tenant runtime override still outranks it. Scripted runs therefore need agents that do not pin a provider, or `OM_AI_<MODULE>_PROVIDER=scripted`. With no real key configured, a pinned real provider fails closed rather than silently calling out.
+  - Only the in-process (native) runtime is covered. OpenCode file agents call their model inside the OpenCode container.
 
 ## Architecture & Data Models
 
@@ -114,7 +133,7 @@ Additive only: new routes, a new optional query param, a nullable column, new ex
 ## Implementation Plan
 - **Phase A** — `ProposalDecisionCard` + long-text field support + citations panel / `citationResolvers` + tests (dispose approve/edit/reject from an embedded host; optimistic-lock conflict).
 - **Phase B** — `flowAssembler` + `/flow` + `runs?workflowInstanceId` filter + `ProcessFlowTrace` + mount on the execution page + live updates.
-- **Phase E/F/G** (runtime, ships first) — the execute function + `stopOnFailure` + `selectedOptionId` in the signal; the evidence envelope; the scripted provider; unit tests (order, stop-on-failure, a disallowed action fails closed, idempotency, evidence preserved through normalize/reassemble).
+- **Phase E/F/G** (runtime, ships first) — the execute function + `stopOnFailure` + `selectedOptionId` in the signal; the evidence envelope; the scripted provider; unit tests (order, stop-on-failure, a disallowed action fails closed, idempotency, evidence preserved through normalize/reassemble). **Done** — tests: `AO/__tests__/{execute-approved-proposal,proposal-evidence,resume-selected-option}.test.ts`, `ai-assistant/.../lib/__tests__/llm-adapters-scripted.test.ts` (hit, scripted tool calls through `generateText` + `Output.object`, stream, missing fixture, production guard, bootstrap registration).
 - **Phase C** — C1 playback; C2 re-run + migration; C3 compare (stretch).
 
 ### Testing
@@ -136,3 +155,4 @@ Additive-only contracts ✅ · tenant scoping on the new filters ✅ · redactio
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — Dropped external nodes (LangGraph/DeepAgents) per umbrella D5; added the citations panel for KB grounding (D7).
 - **2026-10-12** — Added §E proposal execution, §F evidence envelope and §G scripted provider (code research: approval executes nothing today; normalization drops extra fields; no stub LLM). Dispose contract corrected (full payload + `selectedOptionId`). Flow located by execution id; added the `runs?workflowInstanceId` filter.
+- **2026-10-12** — Implemented Phase E/F/G. Spec corrections from the build: auto-approved proposals also execute (the auto path runs the same effector step); the result also carries `proposalId`, `selectedOptionId` and `replayed`; idempotency is stored in a claim `AgentSpan` rather than a new column (squash-only migrations); the scripted provider lives in `ai-assistant` and keys fixtures through an async-context binding set by AO; it does not override agent/module/tenant provider pins.
