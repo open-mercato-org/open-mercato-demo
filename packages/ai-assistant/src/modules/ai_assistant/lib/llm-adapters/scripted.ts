@@ -14,12 +14,18 @@
  * A fixture may script tool calls before its final answer (`steps[].toolCalls`), so a
  * tool-loop run executes the real tools and its trace carries real tool spans.
  *
+ * When no exact fixture exists, `<agentId>/*.match.json` files are tried in file-name
+ * order: each carries `match` rules over the run input and the tool results already
+ * returned, and its tool-call inputs / final answer may template both
+ * (`{{input.ticketId}}`, `{{tools.reservations.get_details.balance.overpayment}}`).
+ * See `scripted-matching.ts`.
+ *
  * @see packages/shared/src/lib/ai/llm-provider.ts
  * @see .ai/specs/enterprise/agent-orchestrator/2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md §G
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { z } from 'zod'
@@ -31,11 +37,21 @@ import type {
   LlmProvider,
 } from '@open-mercato/shared/lib/ai/llm-provider'
 import { getScriptedLlmContext, type ScriptedLlmContext } from './scripted-context'
+import {
+  collectScriptedToolResults,
+  evaluateScriptedMatch,
+  normalizeScriptedToolName,
+  parseScriptedInputText,
+  renderScriptedTemplate,
+  scriptedMatchRulesSchema,
+  type ScriptedScope,
+} from './scripted-matching'
 
 export const SCRIPTED_PROVIDER_ID = 'scripted'
 export const SCRIPTED_FIXTURE_MISSING = 'scripted_fixture_missing'
 export const SCRIPTED_FIXTURE_INVALID = 'scripted_fixture_invalid'
 export const SCRIPTED_DEFAULT_AGENT_ID = '_default'
+export const SCRIPTED_MATCH_FIXTURE_SUFFIX = '.match.json'
 
 const DEFAULT_MODEL = 'scripted'
 const DEFAULT_MODELS: readonly LlmModelInfo[] = [
@@ -57,17 +73,17 @@ const scriptedToolCallSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
 })
 
+const scriptedFixtureUsageSchema = z.object({
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+})
+
 const scriptedFixtureSchema = z
   .object({
     steps: z.array(z.object({ toolCalls: z.array(scriptedToolCallSchema).min(1) })).optional(),
     object: z.unknown().optional(),
     text: z.string().optional(),
-    usage: z
-      .object({
-        inputTokens: z.number().int().min(0).optional(),
-        outputTokens: z.number().int().min(0).optional(),
-      })
-      .optional(),
+    usage: scriptedFixtureUsageSchema.optional(),
   })
   .refine((fixture) => fixture.object !== undefined || fixture.text !== undefined, {
     message: 'a scripted fixture must declare a final "object" or "text"',
@@ -155,28 +171,117 @@ export function resolveScriptedLlmContext(options: ScriptedCallOptions): Scripte
   return getScriptedLlmContext() ?? { agentId: SCRIPTED_DEFAULT_AGENT_ID, inputKey: hashText(lastUserText(options)) }
 }
 
-export function loadScriptedFixture(context: ScriptedLlmContext, env: EnvLookup = process.env): ScriptedFixture {
+function assertSafeContext(context: ScriptedLlmContext): void {
   if (!SAFE_SEGMENT.test(context.agentId) || !SAFE_SEGMENT.test(context.inputKey)) {
     throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_MISSING, context, 'agent id or input key is not a safe path segment')
   }
-  const roots = listScriptedLlmFixtureDirs(env)
+}
+
+function readFixtureFile<T>(file: string, schema: z.ZodType<T>, context: ScriptedLlmContext): T {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_INVALID, context, `${file} is not valid JSON`)
+  }
+  const parsed = schema.safeParse(raw)
+  if (!parsed.success) {
+    throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_INVALID, context, `${file}: ${parsed.error.issues[0]?.message ?? 'invalid'}`)
+  }
+  return parsed.data
+}
+
+function missingFixtureError(context: ScriptedLlmContext, roots: string[], detail?: string): ScriptedLlmFixtureError {
+  const searched = roots.length > 0 ? roots.join(', ') : 'no fixture directory configured'
+  return new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_MISSING, context, `${detail ? `${detail}; ` : ''}searched: ${searched}`)
+}
+
+function findExactScriptedFixture(context: ScriptedLlmContext, roots: string[]): ScriptedFixture | null {
   for (const root of roots) {
     const file = path.join(root, context.agentId, `${context.inputKey}.json`)
-    if (!existsSync(file)) continue
-    let raw: unknown
-    try {
-      raw = JSON.parse(readFileSync(file, 'utf8'))
-    } catch {
-      throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_INVALID, context, `${file} is not valid JSON`)
-    }
-    const parsed = scriptedFixtureSchema.safeParse(raw)
-    if (!parsed.success) {
-      throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_INVALID, context, `${file}: ${parsed.error.issues[0]?.message ?? 'invalid'}`)
-    }
-    return parsed.data
+    if (existsSync(file)) return readFixtureFile(file, scriptedFixtureSchema, context)
   }
-  const searched = roots.length > 0 ? roots.join(', ') : 'no fixture directory configured'
-  throw new ScriptedLlmFixtureError(SCRIPTED_FIXTURE_MISSING, context, `searched: ${searched}`)
+  return null
+}
+
+export function loadScriptedFixture(context: ScriptedLlmContext, env: EnvLookup = process.env): ScriptedFixture {
+  assertSafeContext(context)
+  const roots = listScriptedLlmFixtureDirs(env)
+  const fixture = findExactScriptedFixture(context, roots)
+  if (fixture) return fixture
+  throw missingFixtureError(context, roots)
+}
+
+const scriptedMatchFixtureSchema = z
+  .object({
+    match: scriptedMatchRulesSchema,
+    steps: z.array(z.object({ toolCalls: z.array(scriptedToolCallSchema).min(1) })).optional(),
+    object: z.unknown().optional(),
+    text: z.string().optional(),
+    usage: scriptedFixtureUsageSchema.optional(),
+  })
+  .refine((fixture) => fixture.object !== undefined || fixture.text !== undefined, {
+    message: 'a scripted fixture must declare a final "object" or "text"',
+  })
+
+export type ScriptedMatchFixture = z.infer<typeof scriptedMatchFixtureSchema> & { file: string }
+
+export function listScriptedMatchFixtures(context: ScriptedLlmContext, env: EnvLookup = process.env): ScriptedMatchFixture[] {
+  assertSafeContext(context)
+  const fixtures: ScriptedMatchFixture[] = []
+  for (const root of listScriptedLlmFixtureDirs(env)) {
+    const dir = path.join(root, context.agentId)
+    if (!existsSync(dir)) continue
+    const files = readdirSync(dir).filter((name) => name.endsWith(SCRIPTED_MATCH_FIXTURE_SUFFIX)).sort()
+    for (const name of files) {
+      const file = path.join(dir, name)
+      fixtures.push({ ...readFixtureFile(file, scriptedMatchFixtureSchema, context), file })
+    }
+  }
+  return fixtures
+}
+
+function scriptedScopeFor(context: ScriptedLlmContext, options: ScriptedCallOptions): ScriptedScope {
+  const input = context.input !== undefined ? context.input : parseScriptedInputText(lastUserText(options))
+  return { input, tools: collectScriptedToolResults(options.prompt) }
+}
+
+function isFinalTurn(fixture: { steps?: unknown[] }, options: ScriptedCallOptions): boolean {
+  const toolsOffered = (options.tools ?? []).length > 0
+  return !toolsOffered || countAssistantTurns(options) >= (fixture.steps?.length ?? 0)
+}
+
+function stepToolNames(fixture: { steps?: Array<{ toolCalls: Array<{ toolName: string }> }> }): string[] {
+  return (fixture.steps ?? []).flatMap((step) => step.toolCalls.map((call) => normalizeScriptedToolName(call.toolName)))
+}
+
+/**
+ * The fixture answering this model call: the exact `<inputKey>.json` when present,
+ * otherwise the first `*.match.json` whose rules hold for the run input and the tool
+ * results so far. The returned fixture has its templates rendered for this turn.
+ */
+export function resolveScriptedFixture(
+  context: ScriptedLlmContext,
+  options: ScriptedCallOptions,
+  env: EnvLookup = process.env,
+): ScriptedFixture {
+  assertSafeContext(context)
+  const roots = listScriptedLlmFixtureDirs(env)
+  const scope = scriptedScopeFor(context, options)
+  const exact = findExactScriptedFixture(context, roots)
+  if (exact) return renderScriptedTemplate(exact, scope)
+  const candidates = listScriptedMatchFixtures(context, env)
+  for (const candidate of candidates) {
+    const final = isFinalTurn(candidate, options)
+    if (!evaluateScriptedMatch(candidate.match, scope, { final, knownToolNames: stepToolNames(candidate) })) continue
+    const { match: _match, file: _file, ...fixture } = candidate
+    return renderScriptedTemplate(fixture, scope)
+  }
+  throw missingFixtureError(
+    context,
+    roots,
+    candidates.length > 0 ? `no match fixture accepted the input (${candidates.length} tried)` : undefined,
+  )
 }
 
 function resolveToolName(requested: string, options: ScriptedCallOptions): string {
@@ -256,7 +361,7 @@ export function createScriptedLanguageModel(options: { modelId?: string; env?: E
   const modelId = options.modelId?.trim() || DEFAULT_MODEL
   const generate = async (callOptions: ScriptedCallOptions): Promise<ScriptedGenerateResult> => {
     const context = resolveScriptedLlmContext(callOptions)
-    const fixture = loadScriptedFixture(context, options.env ?? process.env)
+    const fixture = resolveScriptedFixture(context, callOptions, options.env ?? process.env)
     return buildScriptedGenerateResult(fixture, callOptions, modelId)
   }
   return new MockLanguageModelV4({

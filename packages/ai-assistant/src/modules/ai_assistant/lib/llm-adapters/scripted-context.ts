@@ -9,10 +9,14 @@ import { AsyncLocalStorage } from 'node:async_hooks'
  * so a fixture is addressed by `<agentId>/<inputKey>.json`. Binding it here keeps the
  * provider port (`LlmCreateModelOptions`) unchanged: a model instance never learns which
  * agent called it, and only this provider reads the binding.
+ *
+ * `input` (optional) is the raw run input. Match fixtures (`*.match.json`) and fixture
+ * templates read it; when absent the provider parses the last user message as JSON.
  */
 export type ScriptedLlmContext = {
   agentId: string
   inputKey: string
+  input?: unknown
 }
 
 const scriptedContextStorage = new AsyncLocalStorage<ScriptedLlmContext>()

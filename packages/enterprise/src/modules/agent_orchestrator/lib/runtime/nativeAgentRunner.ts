@@ -392,7 +392,7 @@ export class NativeAgentRunner {
       // inherits the eval tag instead of being recorded as production traffic.
       const modelExecution = withRunContext(runId, () =>
         runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await withScriptedLlmContext({ agentId, inputKey: canonicalInputKey(input) }, () => runAiAgentObject({
+          const objectResult = await withScriptedLlmContext({ agentId, inputKey: canonicalInputKey(input), input }, () => runAiAgentObject({
             agentId,
             input: typeof input === 'string' ? input : JSON.stringify(input),
             authContext,
