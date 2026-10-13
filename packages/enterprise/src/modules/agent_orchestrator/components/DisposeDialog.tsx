@@ -38,6 +38,8 @@ export type DisposeDialogProps = {
   requireReason?: boolean
   /** Extra content above the reason field — e.g. the chosen option summary. */
   children?: React.ReactNode
+  /** Confirm button look; a reject stays `destructive` (the default), a save-with-edits is `default`. */
+  confirmVariant?: 'default' | 'destructive'
 }
 
 export function DisposeDialog({
@@ -53,6 +55,7 @@ export function DisposeDialog({
   busy = false,
   requireReason = true,
   children,
+  confirmVariant = 'destructive',
 }: DisposeDialogProps) {
   const t = useT()
   const canConfirm = !busy && (!requireReason || reason.trim().length > 0)
@@ -99,7 +102,7 @@ export function DisposeDialog({
             >
               {t('agent_orchestrator.proposal.actions.cancelEdit')}
             </Button>
-            <Button type="button" variant="destructive" onClick={submit} disabled={!canConfirm}>
+            <Button type="button" variant={confirmVariant} onClick={submit} disabled={!canConfirm}>
               {confirmLabel}
             </Button>
           </div>
