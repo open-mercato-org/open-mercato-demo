@@ -3,6 +3,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetTriageDemo, resolveScenarios, sendScenario } from './lib/demo'
 import { resolveTriageAutoStart } from './lib/autoStart'
+import { seedTriageGoldenEvals } from './lib/goldenEvals'
 import { ensureTriageProcess } from './lib/processSeed'
 import { rebuildTriageProjection } from './lib/rebuild'
 import { TRIAGE_SCENARIOS } from './lib/scenarios'
@@ -109,6 +110,29 @@ const rebuildProjection: ModuleCli = {
   },
 }
 
-const commands: ModuleCli[] = [setupProcess, demoSend, demoReset, rebuildProjection]
+const seedEvals: ModuleCli = {
+  command: 'seed-evals',
+  async run(rest) {
+    const { flags } = parseArgs(rest)
+    const scope = requireScope(flags, 'Usage: mercato triage_agents seed-evals --tenant <tenantId> --org <organizationId>')
+    if (!scope) return
+    const container = await createRequestContainer()
+    const result = await seedTriageGoldenEvals(container, scope)
+    if (!result.available) {
+      console.log('The agent orchestrator is not available; no golden eval cases were seeded.')
+      return
+    }
+    console.log(
+      `Golden evals: ${result.assertionsCreated} assertion(s) created, ${result.casesCreated} case(s) created, ${result.casesExisting} already present.`,
+    )
+    if (result.missingScenarios.length > 0) {
+      console.log(
+        `No complete triage run yet for: ${result.missingScenarios.join(', ')}. Run "demo:send all", let the triage finish, then run seed-evals again.`,
+      )
+    }
+  },
+}
+
+const commands: ModuleCli[] = [setupProcess, demoSend, demoReset, rebuildProjection, seedEvals]
 
 export default commands
