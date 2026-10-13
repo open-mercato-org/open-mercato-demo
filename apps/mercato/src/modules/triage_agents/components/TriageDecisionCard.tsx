@@ -4,27 +4,13 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { ProposalDecisionCard } from '@open-mercato/enterprise/modules/agent_orchestrator/components/ProposalDecisionCard'
-import type { DecisionFieldOverrides } from '@open-mercato/enterprise/modules/agent_orchestrator/components/decisionCardModel'
 import { ensureKbCitationResolver } from './kbCitationResolver'
+import { buildTriageFieldOverrides, REFUND_MANAGE_FEATURE } from './triageDecisionModel'
 import { useFeatureGranted } from './useFeatureGranted'
 import { useTicketTriage } from './useTicketTriage'
 import { pendingProposalId, TRIAGE_DECISION_CARD_ANCHOR } from './triageTypes'
 
 ensureKbCitationResolver()
-
-export const REFUND_MANAGE_FEATURE = 'reservations.refund.manage'
-
-/** Editors for the triage advisor's action fields (refund request, reply, ticket transition). */
-export function buildTriageFieldOverrides(canRevealBankAccount: boolean): DecisionFieldOverrides {
-  return {
-    'tickets.reply.send.body': { widget: 'long_text' },
-    'reservations.refund.request.amount': { widget: 'money' },
-    'reservations.refund.request.bankAccountNumber': { widget: 'masked', revealable: canRevealBankAccount },
-    '*.ticketId': { widget: 'readonly' },
-    '*.reservationId': { widget: 'readonly' },
-    '*.relatedTicketId': { widget: 'readonly' },
-  }
-}
 
 export type TriageDecisionCardProps = {
   ticketId: string

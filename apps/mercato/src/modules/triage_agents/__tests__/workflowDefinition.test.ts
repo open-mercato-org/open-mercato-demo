@@ -91,6 +91,21 @@ describe('ticket triage workflow definition', () => {
     })
   })
 
+  it('records a rejection first and flags the ticket only when the proposal was not superseded by a re-run', () => {
+    const record = transitions.find((transition) => transition.fromStepId === 'rejected')
+    expect(record?.toStepId).toBe('rejected_recorded')
+    expect(record?.activities?.map((activity) => activity.activityName)).toEqual(['stage_rejected'])
+    const fromRecorded = transitions.filter((transition) => transition.fromStepId === 'rejected_recorded') as Array<
+      Transition & { priority: number; condition?: { field?: string; operator?: string; value?: unknown } }
+    >
+    const superseded = fromRecorded.find((transition) => transition.condition?.field === 'stage_rejected.result.superseded')
+    const flag = fromRecorded.find((transition) => transition.activities?.some((activity) => activity.config.commandId === 'tickets.ticket.flag_manual_review'))
+    expect(superseded).toMatchObject({ toStepId: 'end', condition: { operator: '=', value: true } })
+    expect(superseded?.activities ?? []).toEqual([])
+    expect(flag?.condition).toBeUndefined()
+    expect(superseded!.priority).toBeGreaterThan(flag!.priority)
+  })
+
   it('declares valid process triggers mapping the ticket id from the event payload', () => {
     const parsed = processTriggersSchema.parse(TRIAGE_PROCESS_TRIGGERS)
     const event = parsed.find((trigger) => trigger.kind === 'event')
