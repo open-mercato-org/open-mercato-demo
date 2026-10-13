@@ -408,11 +408,7 @@ export function ProposalDecisionCard({
       return <span className="text-sm font-medium tabular-nums text-foreground">{formatMoney(field.value, undefined)}</span>
     }
     if (field.kind === 'boolean') {
-      return (
-        <span className="text-sm text-foreground">
-          {field.value === true ? t('agent_orchestrator.decisionCard.field.yes') : t('agent_orchestrator.decisionCard.field.no')}
-        </span>
-      )
+      return <Switch checked={field.value === true} disabled aria-label={humanizeKey(field.key)} />
     }
     return <span className="whitespace-pre-wrap text-sm text-foreground">{String(field.value)}</span>
   }
