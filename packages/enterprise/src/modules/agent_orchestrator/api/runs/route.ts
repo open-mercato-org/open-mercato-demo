@@ -57,6 +57,8 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       'output_tokens',
       'workflow_instance_id',
       'proposal_id',
+      'step_id',
+      'rerun_of_run_id',
       'human_confirmed_at',
       'organization_id',
       'tenant_id',
@@ -90,6 +92,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       // The DECLARED type, filterable independently of `resultKind`: the two describe
       // different facts and a run may legitimately disagree with its agent's declaration.
       if (query.agentType) filters.agent_type = { $eq: query.agentType }
+      if (query.workflowInstanceId) filters.workflow_instance_id = { $eq: query.workflowInstanceId }
       if (query.flagged) filters.flagged_at = { $ne: null }
       if (query.window && WINDOW_MS[query.window]) {
         filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }
@@ -131,6 +134,8 @@ const runListItemSchema = z.object({
   output_tokens: z.number().nullable().optional(),
   workflow_instance_id: z.string().uuid().nullable().optional(),
   proposal_id: z.string().uuid().nullable().optional(),
+  step_id: z.string().nullable().optional(),
+  rerun_of_run_id: z.string().uuid().nullable().optional(),
   human_confirmed_at: z.string().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),

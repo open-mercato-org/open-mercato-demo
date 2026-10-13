@@ -268,6 +268,8 @@ export const runListQuerySchema = z
     resultKind: z.enum(['research', 'proposal', 'artifact']).optional(),
     /** The agent's DECLARED type (`agent_runs.agent_type`); runs without one never match. */
     agentType: agentTypeSchema.optional(),
+    /** Runs one workflow instance caused (process flow trace); scoped like every other filter. */
+    workflowInstanceId: z.string().uuid().optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */
     flagged: z.coerce.boolean().optional(),
     // Trace facets + window (trace-eval overlay).
@@ -1360,7 +1362,16 @@ export const processMilestonesReachedSchema = z.array(processMilestoneReachedSch
 export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), ref: z.string().min(1).max(200).optional() }),
   z.object({ kind: z.literal('event'), ref: z.string().min(1).max(255) }),
-  z.object({ kind: z.literal('manual'), ref: z.string().min(1).max(200).optional() }),
+  z.object({
+    kind: z.literal('manual'),
+    ref: z.string().min(1).max(200).optional(),
+    /**
+     * Set when this execution re-runs an earlier one (`POST /executions/:id/rerun`).
+     * Stored here rather than in a column because the module's migrations are
+     * squash-only; read it through `readRerunOfExecutionId`.
+     */
+    rerunOfExecutionId: z.string().uuid().optional(),
+  }),
   /** System entries with no declared trigger (backfills, fixtures, replays). */
   z.object({ kind: z.literal('system'), ref: z.string().min(1).max(200).optional() }),
 ])
@@ -1547,6 +1558,8 @@ export const processExecutionListQuerySchema = z
     scope: processListScopeSchema.optional(),
     status: processInstanceStatusSchema.optional(),
     subjectType: z.string().max(100).optional(),
+    /** The business record an execution is about; pairs with `subjectType`. */
+    subjectId: z.string().max(200).optional(),
     sourceEntityType: z.string().max(100).optional(),
     sourceEntityId: z.string().uuid().optional(),
     q: z.string().max(200).optional(),
