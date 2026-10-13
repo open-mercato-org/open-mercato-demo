@@ -1,6 +1,6 @@
 # Agent Orchestrator — Process Flow Trace, Replay & Embeddable Decision Card
 
-> **Status:** In progress (Phase E/F/G implemented; A–C pending) · **Date:** 2026-10-12 · **Package:** `packages/enterprise/src/modules/agent_orchestrator`
+> **Status:** Implemented (Phases A, B, C1–C3, E, F, G) · **Date:** 2026-10-12 · **Package:** `packages/enterprise/src/modules/agent_orchestrator`
 > **Driven by:** [`../../2026-10-12-travel-ticket-triage-demo.md`](../../2026-10-12-travel-ticket-triage-demo.md) (demo Steps 5–6) · **Consumer:** [`../2026-10-12-triage-agents-module.md`](../2026-10-12-triage-agents-module.md)
 > **Builds on:** `00-IMPLEMENTED-BASELINE.md`, `2026-09-06-business-process-workflow-unification.md` (ProcessInstance projection, subject facets), the per-run trace page, `POST /runs/:id/rerun`
 
@@ -36,6 +36,15 @@
 - ACL: renders read-only without `agent_orchestrator.proposals.dispose`.
 - Keyboard: `Cmd/Ctrl+Enter` approve (or save edits), `Escape` closes the edit mode.
 
+- **As implemented (Phase A):**
+  - **Import:** `@open-mercato/enterprise/modules/agent_orchestrator/components/ProposalDecisionCard`. Props: `{ proposalId, compact?, onDisposed?(result: { proposalId, disposition, selectedOptionId, updatedAt }), fieldOverrides?, canDispose?, approveLabel?, reloadToken?, className? }`. `canDispose` overrides the `POST /api/auth/feature-check` probe for `agent_orchestrator.proposals.dispose`. `approveLabel` lets a host say "Approve & send". `reloadToken` makes the host reload the card after its own events.
+  - **Field overrides:** the keys are `<actionType>.<field>` or `*.<field>`. The value is `{ widget: 'long_text' | 'money' | 'readonly' | 'masked', labelKey?, revealable? }`. `revealable` is an additive extra for `masked`; the host decides who may reveal. Masked and read-only fields are never inputs, and their stored values pass through the edit unchanged. Schema-driven long text comes from the `outcomeSchema` that `GET /agents` serves: every action payload property whose `description` contains `format:long_text` counts (`collectLongTextFields`).
+  - **`deriveActionEdits`:** it needed no change. It already exposes flat string fields. The card picks the editor per field (a `Textarea` for long text) and re-assembles through `actionEditsToActions` + `reassembleProposalPayload`. The dispose body is built by `buildDisposeBody` (`components/decisionCardModel.ts`).
+  - **Verdict flow:** approve goes straight to the endpoint (button or `Cmd/Ctrl+Enter`). Edit is inline; "Save & approve" opens `DisposeDialog` for the reason. Reject opens `DisposeDialog` with a reason that is required. `Escape` leaves edit mode. `DisposeDialog` gained an additive `confirmVariant` prop.
+  - **Citations panel:** `components/ProposalCitationsPanel.tsx`. It reads `readProposalEvidence(payload)`. Template segments are highlighted wherever they still occur verbatim in the long-text value (`highlightTemplateSegments`); once an operator rewrites a sentence, its highlight disappears. Uncertainty entries render as chips.
+  - **Resolver registry:** `components/citationResolvers.ts` exports `registerCitationResolver(kind, resolver) → unregister`, `getCitationResolver`, `listCitationResolverKinds` and `resolveCitation`. A resolver gets `{ kind, ref, label?, steps?, href? }` and returns `{ title, href?, steps?: [{ id, text }] } | null`, sync or async. The registry lives on `globalThis`, so duplicate bundles share it. Last registration wins. A missing resolver, a `null` result or a throwing resolver all fall back to `label ?? ref` + `href`.
+  - **Call site:** the AO execution page (`/backend/processes/[id]`) embeds the card for the oldest pending proposal. The Caseload pages keep `ProposalCard` unchanged.
+
 ### B. Process Flow Trace
 
 **API (additive):**
@@ -56,6 +65,31 @@
 - **Component:** `ProcessFlowTrace` `{ executionId: string, attempts?: string[] /* execution ids */, showAttemptSelector?: boolean }`. A vertical timeline grouped by step. Agent runs expand to tool calls (CRM / ticket / KB calls are visible individually). Disposition shows who decided and a diff of the edited fields. Effector shows the command and its result. Each node deep-links to the run trace page. Live updates through the DOM event bridge (`agent_orchestrator.run.*`, `workflows.*` step events) while the execution is running.
 - Also mount `ProcessFlowTrace` on the AO process execution detail page (`/backend/processes/[id]`). This closes the "AgentTimeline not mounted" gap.
 
+- **As implemented (Phase B):**
+  - **Code:** `lib/trace/flowAssembler.ts` is pure (fixtures pin the ordering and status rules). `lib/trace/flowLoader.ts` loads the records. The workflows entities are imported lazily as an optional peer: without them the flow still shows the trigger, the runs, the dispositions and the effector.
+  - **Ordering:** `seq` comes from recorded time. Ties break by kind (trigger, step, agent_run, tool_call, disposition, function, effector).
+  - **Parents:**
+    - an agent run hangs under the step-instance row of its `stepId` that entered most recently before the run started;
+    - a tool call hangs under its run;
+    - a disposition hangs under its run;
+    - the effector hangs under the disposition;
+    - a function hangs under the transition's from-step.
+  - **Function nodes:** read from `TRANSITION_EXECUTED` / `ACTIVITY_FAILED` events plus the definition's transition activities. The engine logs no per-activity event for a synchronous transition activity. When an effector span exists, the `execute_approved_proposal` function node is dropped so the same work is not shown twice.
+  - **Status mapping:**
+    - step: the `StepInstance.status` vocabulary;
+    - run: `running`/`ok`/`error`/`cancelled`;
+    - disposition: `pending` → `waiting`, `rejected` → `failed`, `none_proposed` → `skipped`, the rest → `succeeded`;
+    - effector: the claim span's `attributes.ok` / `state`.
+  - **Summaries:**
+    - tool call: `{ toolName, argKeys, resultBytes }`, with secret-shaped keys masked;
+    - agent run: `{ agentId, resultKind, confidence, model, outputFacts }`. The `outputFacts` are flattened output leaves (at most 60; strings clamped to 200 characters; secret keys masked). They feed the compare view. `trace.view` already grants the full run output via `GET /runs/:id`, so they expose nothing new;
+    - disposition: `{ decision, actorKind, actor, reason, selectedOptionId, editedFields, proposal }`. `editedFields` is the per-field before/after diff of the selected option, taken from the `AgentCorrection` row. `proposal` holds the action types, citations and checks;
+    - effector: `{ ok, state, results }`;
+    - trigger: `{ triggerKind, inputKeys, sourceEntityType/Id, rerunOfExecutionId }`.
+  - **Filters:** `GET /runs` gained `workflowInstanceId` and now also returns `step_id` and `rerun_of_run_id` (additive). `GET /executions` gained `subjectId`.
+  - **Component:** `components/ProcessFlowTrace.tsx`. Props: `{ executionId, attempts?, showAttemptSelector?, allowRerun?, onRerunStarted?, onAttemptChange?, defaultMode?: 'live' | 'playback', className? }`. Live mode refetches, coalesced, on `agent_orchestrator.*` and `workflows.instance.*` app events while the execution is non-terminal. Run and tool-call nodes deep-link to `/backend/traces/:runId`. The component is mounted on `/backend/processes/[id]`. Its attempts there are `[rerunOf, current]`, read from `triggered_by`, and `allowRerun` is on.
+  - **Not done:** the flow response is not cached (the spec suggested a `lastEventSeq`-keyed cache). Assembly is a handful of indexed, scoped queries, so the cache is a follow-up if long executions need it.
+
 ### C. Replay
 
 1. **Playback (Phase C1):** a `ProcessFlowTrace` mode `playback`, with play / pause / step / speed controls. It reveals nodes in `seq` order using the recorded timestamps (compressed). Pure client-side over the `flow` response: zero LLM cost, deterministic, safe on stage.
@@ -65,6 +99,15 @@
    - it is rejected while the original has a pending proposal (`409 pending_proposal`) unless `supersede: true`; supersede rejects the pending proposal with the reason `superseded_by_rerun`
    - effectors run only after a new disposition, as normal
 3. **Compare (Phase C3, stretch):** `ProcessFlowTrace` compares two attempts side by side: per-agent output diff, route, and proposed actions.
+
+- **As implemented (Phase C):**
+  - **C1 Playback:** the `playback` mode of `ProcessFlowTrace` (play / pause / step / restart, speed 0.5×–4×). It reveals nodes in `seq` order. Each delay is `clamp(sqrt(recorded gap ms) × 10, 250, 1500) / speed` (`playbackDelays`). It runs purely on the client over the `flow` response.
+  - **C2 Re-run:** `POST /api/agent_orchestrator/executions/:id/rerun` `{ supersede? }` → `202 { executionId, rerunOfExecutionId, supersededProposalIds }`. `:id` is the execution id or the workflow instance id.
+    - **Guards** (`lib/processes/rerunGuard.ts`): the execution needs a process definition (422). The definition must declare a `manual` trigger, and the caller must hold that trigger's `requireFeatures` (403). A pending proposal gives `409 { code: 'pending_proposal', pendingProposalIds }`. With `supersede`, the caller also needs `agent_orchestrator.proposals.dispose` (403).
+    - **Supersede:** every pending proposal is rejected through the `agent_orchestrator.proposals.dispose` command with reason `superseded_by_rerun`. The command runs without the HTTP request, so no stale lock header applies.
+    - **Start:** then `processes.startExecution` runs with the original `input`, `sourceEntityType/Id`, `idempotencyKey: null` and `triggeredBy { kind: 'manual', ref: <user>, rerunOfExecutionId }`. The mutation guard is wired.
+  - **Migration decision:** there is no `rerun_of_execution_id` column. AO migrations are squash-only: one create-schema file, and the tests require exactly one. A new column would force a re-squash, which breaks databases already on the current squash. The link is stored as an optional `rerunOfExecutionId` on the `manual` arm of `processRunTriggeredBySchema` (`process_instances.triggered_by` jsonb, plaintext). It is read with `readRerunOfExecutionId`, and the flow header exposes it as `execution.rerunOfExecutionId`.
+  - **C3 Compare:** the `compare` mode of `ProcessFlowTrace`, shown when there are two or more attempts. It is built by `compareFlows`. It shows the step route of each attempt; the proposal of each attempt (action types, citations with their `key@version`, so v3 vs v4 is visible, and checks ✓/✗); and, per agent, a diff of the output facts.
 
 ### E. Proposal execution
 
@@ -113,28 +156,29 @@
 
 ## Architecture & Data Models
 
-- **New column (additive):** `process_instances.rerun_of_execution_id uuid null` (+ index). Migration + snapshot.
-- No other schema changes. Flow is assembled on read. The cache is tenant-scoped and keyed by `executionId + lastEventSeq`, invalidated by run/step events.
+- ~~New column `process_instances.rerun_of_execution_id`~~ — superseded at build time: the link lives in `process_instances.triggered_by.rerunOfExecutionId` (squash-only migrations, see §C As implemented).
+- No schema changes. Flow is assembled on read. The cache is tenant-scoped and keyed by `executionId + lastEventSeq`, invalidated by run/step events.
 
 ## API Contracts (summary)
 
 | Method | Path | Feature | Notes |
 |---|---|---|---|
 | GET | `/api/agent_orchestrator/runs?workflowInstanceId` | `trace.view` | additive filter |
-| GET | `/api/agent_orchestrator/executions?subjectId` | `trace.view` | optional additive filter |
+| GET | `/api/agent_orchestrator/executions?subjectId` | `processes.view` | optional additive filter (the list route's existing gate) |
 | GET | `/api/agent_orchestrator/executions/:id/flow` | `trace.view` | redacted summaries only |
-| POST | `/api/agent_orchestrator/executions/:id/rerun` | `processes.run` | `{ supersede?: boolean }` → `{ executionId }` |
+| POST | `/api/agent_orchestrator/executions/:id/rerun` | `processes.run` | `{ supersede?: boolean }` → `{ executionId, rerunOfExecutionId, supersededProposalIds }` |
 
 All are added to `api/openapi.ts`.
 
 ## Backward Compatibility
-Additive only: new routes, a new optional query param, a nullable column, new exported components. No existing contract changes. `ProposalCard`/Caseload keep their behaviour; `ProposalDecisionCard` composes them.
+Additive only: new routes, new optional query params, two new fields on the `/runs` list items, an optional `rerunOfExecutionId` on the `manual` `triggered_by` arm, an optional `confirmVariant` on `DisposeDialog`, new exported components. No existing contract changes. `ProposalCard`/Caseload keep their behaviour; `ProposalDecisionCard` composes them.
 
 ## Implementation Plan
 - **Phase A** — `ProposalDecisionCard` + long-text field support + citations panel / `citationResolvers` + tests (dispose approve/edit/reject from an embedded host; optimistic-lock conflict).
 - **Phase B** — `flowAssembler` + `/flow` + `runs?workflowInstanceId` filter + `ProcessFlowTrace` + mount on the execution page + live updates.
 - **Phase E/F/G** (runtime, ships first) — the execute function + `stopOnFailure` + `selectedOptionId` in the signal; the evidence envelope; the scripted provider; unit tests (order, stop-on-failure, a disallowed action fails closed, idempotency, evidence preserved through normalize/reassemble). **Done** — tests: `AO/__tests__/{execute-approved-proposal,proposal-evidence,resume-selected-option}.test.ts`, `ai-assistant/.../lib/__tests__/llm-adapters-scripted.test.ts` (hit, scripted tool calls through `generateText` + `Output.object`, stream, missing fixture, production guard, bootstrap registration).
-- **Phase C** — C1 playback; C2 re-run + migration; C3 compare (stretch).
+- **Phase C** — C1 playback; C2 re-run (no migration, see §C); C3 compare. **Done.**
+- **Phase A/B/C tests** — unit: `AO/__tests__/{process-flow-assembler,decision-card-and-flow-models,execution-flow-rerun-routes}.test.ts`, `proposal-decision-card.test.tsx`; integration: `AO/__integration__/TC-AGENT-FLOW-001.spec.ts`.
 
 ### Testing
 - Unit: `flowAssembler` ordering and status derivation (fixtures: success, manual route, rejected, effector failure); redaction (no raw tool payloads).
@@ -149,10 +193,11 @@ Additive only: new routes, a new optional query param, a nullable column, new ex
 | Re-run double-executes customer-facing actions | High | Re-run never replays effectors; a new disposition is required; supersede rejects the old proposal | Low |
 
 ## Final Compliance Report
-Additive-only contracts ✅ · tenant scoping on the new filters ✅ · redaction preserved ✅ · `apiCall` / DS tokens / i18n in components ✅ · OpenAPI updated ✅ · migration with snapshot ✅
+Additive-only contracts ✅ · tenant scoping on the new filters ✅ · redaction preserved ✅ · `apiCall` / DS tokens / i18n in components ✅ · OpenAPI updated ✅ · no migration (link stored in `triggered_by`, squash-only module) ✅
 
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — Dropped external nodes (LangGraph/DeepAgents) per umbrella D5; added the citations panel for KB grounding (D7).
 - **2026-10-12** — Added §E proposal execution, §F evidence envelope and §G scripted provider (code research: approval executes nothing today; normalization drops extra fields; no stub LLM). Dispose contract corrected (full payload + `selectedOptionId`). Flow located by execution id; added the `runs?workflowInstanceId` filter.
 - **2026-10-12** — Implemented Phase E/F/G. Spec corrections from the build: auto-approved proposals also execute (the auto path runs the same effector step); the result also carries `proposalId`, `selectedOptionId` and `replayed`; idempotency is stored in a claim `AgentSpan` rather than a new column (squash-only migrations); the scripted provider lives in `ai-assistant` and keys fixtures through an async-context binding set by AO; it does not override agent/module/tenant provider pins.
+- **2026-10-13** — Implemented Phases A, B and C1–C3. Spec corrections from the build: the re-run link is `triggered_by.rerunOfExecutionId`, not a column (squash-only migrations); `GET /executions?subjectId` keeps the list's `processes.view` gate; the re-run response also carries `rerunOfExecutionId` and `supersededProposalIds`, refuses supersede without `proposals.dispose`, and returns 422 for an execution with no process definition; workflow functions are derived from transition events plus definition activities (the engine logs no per-activity event for synchronous transition activities); the flow response is not cached yet; the card is also embedded on the AO execution page; `fieldOverrides.masked` gained `revealable`; `DisposeDialog` gained `confirmVariant`.
