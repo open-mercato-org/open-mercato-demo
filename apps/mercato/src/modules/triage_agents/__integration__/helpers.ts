@@ -26,6 +26,7 @@ export type TriageView = {
   identification: { reservation?: { match?: string; bookingNumber?: string | null; candidates?: unknown[] } } | null
   classification: { topicKey?: string | null; source?: string | null } | null
   attempt: number
+  attempts?: Array<{ attempt: number; executionId: string | null; disposition: string | null; reasonCode: string | null }>
 }
 
 export type SetupResponse = {
@@ -421,4 +422,52 @@ export async function cleanupFixtures(request: APIRequestContext, token: string 
   for (const id of fixtures.personIds) await deleteEntityIfExists(request, token, '/api/customers/people', id)
   for (const id of fixtures.articleIds) await deleteEntityIfExists(request, token, '/api/knowledge_articles/articles', id)
   for (const id of [...fixtures.categoryIds].reverse()) await deleteEntityIfExists(request, token, '/api/knowledge_articles/categories', id)
+}
+
+export const OVERPAYMENT_ARTICLE_KEY = 'payments.refunds.overpayment_refund'
+
+export type KbArticleContent = {
+  id: string
+  updatedAt: string | null
+  procedureSteps: Array<Record<string, unknown>>
+  requiredChecks: Array<Record<string, unknown>>
+}
+
+export async function readKbArticleByKey(request: APIRequestContext, token: string, key: string): Promise<KbArticleContent> {
+  const response = await apiRequest(request, 'GET', `/api/knowledge_articles/articles?key=${encodeURIComponent(key)}&pageSize=1`, { token })
+  expect(response.status(), `read KB article failed: ${await response.text()}`).toBe(200)
+  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response)
+  const item = body?.items?.[0]
+  expect(item, `KB article ${key}`).toBeTruthy()
+  return {
+    id: String(item?.id),
+    updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : null,
+    procedureSteps: Array.isArray(item?.procedureSteps) ? (item.procedureSteps as Array<Record<string, unknown>>) : [],
+    requiredChecks: Array.isArray(item?.requiredChecks) ? (item.requiredChecks as Array<Record<string, unknown>>) : [],
+  }
+}
+
+/** Edits the article's procedure and required checks, then publishes a new version; returns its number. */
+export async function publishKbArticleContent(
+  request: APIRequestContext,
+  token: string,
+  key: string,
+  content: { procedureSteps: Array<Record<string, unknown>>; requiredChecks: Array<Record<string, unknown>> },
+): Promise<number> {
+  const current = await readKbArticleByKey(request, token, key)
+  const update = await apiRequest(request, 'PUT', '/api/knowledge_articles/articles', {
+    token,
+    data: { id: current.id, procedureSteps: content.procedureSteps, requiredChecks: content.requiredChecks },
+    headers: current.updatedAt ? { [OPTIMISTIC_LOCK_HEADER]: current.updatedAt } : undefined,
+  })
+  expect(update.status(), `update KB article failed: ${await update.text()}`).toBe(200)
+  const edited = await readKbArticleByKey(request, token, key)
+  const publish = await apiRequest(request, 'POST', `/api/knowledge_articles/articles/${edited.id}/publish`, {
+    token,
+    data: {},
+    headers: edited.updatedAt ? { [OPTIMISTIC_LOCK_HEADER]: edited.updatedAt } : undefined,
+  })
+  const published = await readJsonSafe<{ version?: number }>(publish)
+  expect(publish.status(), `publish KB article failed: ${JSON.stringify(published)}`).toBe(200)
+  return Number(published?.version)
 }
