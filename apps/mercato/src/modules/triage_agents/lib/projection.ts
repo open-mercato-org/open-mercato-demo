@@ -95,6 +95,7 @@ export function projectClassification(classification: Loose | null | undefined, 
     automationLevel: readString(article?.automationLevel) ?? readString(classification.automationLevel),
     urgencySignal: readString(classification.urgencySignal),
     confidence: readNumber(classification.confidence),
+    source: readString(classification.source) === 'manual' ? 'manual' : 'ai',
   }
 }
 

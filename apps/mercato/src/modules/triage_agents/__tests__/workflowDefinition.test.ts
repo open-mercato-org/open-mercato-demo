@@ -65,6 +65,31 @@ describe('ticket triage workflow definition', () => {
     }
   })
 
+  it('records the advising stage when the resolution advisor starts', () => {
+    const assisted = transitions.find((transition) => transition.fromStepId === 'classified' && transition.toStepId === 'resolve')
+    const stage = assisted?.activities?.find((activity) => activity.config.functionName === RECORD_STAGE_FUNCTION)
+    expect(stage?.config.args).toMatchObject({ stage: 'advising' })
+  })
+
+  it('keeps a manual classification instead of applying the AI one', () => {
+    const fromPolicy = transitions.filter((transition) => transition.fromStepId === 'policy' && transition.kind !== 'error') as Array<
+      Transition & { priority: number; condition?: { field?: string; value?: unknown } }
+    >
+    const keep = fromPolicy.find((transition) => transition.condition?.field === 'triage_route.result.humanClassified')
+    const apply = fromPolicy.find((transition) => transition.activities?.some((activity) => activity.config.commandId === 'tickets.ticket.classify'))
+    expect(keep?.condition?.value).toBe(true)
+    expect(keep?.toStepId).toBe('classified')
+    expect(keep?.activities?.some((activity) => activity.activityType === 'UPDATE_ENTITY')).toBe(false)
+    expect(keep && apply && keep.priority > apply.priority).toBe(true)
+    const route = activities.find((activity) => activity.config.functionName === ROUTE_FUNCTION)
+    expect(route?.config.args).toMatchObject({ ticketId: '{{context.ticketId}}' })
+    const advisor = activities.find((activity) => activity.config.agentId === 'triage_agents.resolution_advisor')
+    expect(advisor?.config.input).toMatchObject({
+      identification: '{{context.triage_route.result.identification}}',
+      classification: '{{context.triage_route.result.classification}}',
+    })
+  })
+
   it('declares valid process triggers mapping the ticket id from the event payload', () => {
     const parsed = processTriggersSchema.parse(TRIAGE_PROCESS_TRIGGERS)
     const event = parsed.find((trigger) => trigger.kind === 'event')

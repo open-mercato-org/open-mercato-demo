@@ -35,6 +35,7 @@ export type TriageClassificationView = {
   intent?: string | null
   automationLevel?: string | null
   confidence?: number | null
+  source?: 'ai' | 'manual' | null
 }
 
 export type TriageView = {

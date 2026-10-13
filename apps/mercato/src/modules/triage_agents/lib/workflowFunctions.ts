@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordStageArgsSchema } from '../data/validators'
 import { emitTriageAgentsEvent } from '../events'
 import { loadArticlePolicy, resolveKbVersionReader, type KbArticlePolicy, type KbArticleVersionReader, type TriageScope } from './kbArticles'
+import { applyHumanClassification, isHumanClassified, loadTicketClassification } from './humanClassification'
 import { computePriority, normalizeDays, type ComputePriorityResult } from './priorityPolicy'
 import { decideRoute, type RouteDecision } from './routePolicy'
 import { isRecord, noProposalFlag, parseMaybeJsonRecord, recordTriageStage, type RecordStageResult } from './projection'
@@ -28,6 +29,7 @@ const computePriorityArgsSchema = z.object({
 })
 
 const routeArgsSchema = z.object({
+  ticketId: z.string().nullable().optional(),
   identification: looseRecord.nullable().optional(),
   classification: looseRecord.nullable().optional(),
 })
@@ -125,6 +127,9 @@ export type ClassifyCommandInput = {
 
 export type RouteFunctionResult = RouteDecision & {
   hasTargetQueue: boolean
+  humanClassified: boolean
+  identification: Record<string, unknown> | null
+  classification: Record<string, unknown> | null
   article: { key: string; version: number; automationLevel: string; categoryPath: string } | null
   classify: ClassifyCommandInput
 }
@@ -153,16 +158,24 @@ export function createRouteFunction(container: ResolverLike): TriageWorkflowFunc
   return async (rawArgs, context) => {
     const args = parseArgs(routeArgsSchema, rawArgs, 'triage_agents.route')
     const scope = scopeOf(context)
-    const classification = args.classification ?? null
+    const ticketState = await loadTicketClassification(container, scope, args.ticketId)
+    const humanClassified = isHumanClassified(ticketState)
+    const effective = humanClassified
+      ? applyHumanClassification(args.identification ?? null, args.classification ?? null, ticketState)
+      : { identification: args.identification ?? null, classification: args.classification ?? null }
+    const { identification, classification } = effective
     const article = await loadTopicArticle(resolveKbVersionReader(container), scope, topicOf(classification), versionOf(classification))
-    const decision = decideRoute(args.identification ?? null, classification, article)
+    const decision = decideRoute(identification, classification, article)
     return {
       ...decision,
       hasTargetQueue: Boolean(decision.targetQueueKey),
+      humanClassified,
+      identification,
+      classification,
       article: article
         ? { key: article.key, version: article.version, automationLevel: article.automationLevel, categoryPath: article.categoryPath }
         : null,
-      classify: buildClassifyInput(args.identification, classification, article),
+      classify: buildClassifyInput(identification, classification, article),
     }
   }
 }

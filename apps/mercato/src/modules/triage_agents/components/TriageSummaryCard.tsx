@@ -177,6 +177,11 @@ function TriageDetails({ triage, ticket }: { triage: TriageView; ticket: TicketL
           ) : null}
         </Row>
         <Row label={t('triage_agents.card.category', 'Category')} testId="triage-category">{categoryPath ?? '—'}</Row>
+        {triage.classification?.source === 'manual' ? (
+          <Row label={t('triage_agents.card.classificationSource', 'Classification')} testId="triage-classification-kept">
+            {t('triage_agents.card.classificationKept', "Kept the consultant's classification; the AI classification was not applied.")}
+          </Row>
+        ) : null}
         <Row label={t('triage_agents.card.priority', 'Priority')} testId="triage-priority">
           {priorityReason ?? priority ?? '—'}
         </Row>

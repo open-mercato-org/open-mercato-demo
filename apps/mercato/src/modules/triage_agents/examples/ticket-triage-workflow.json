@@ -78,7 +78,7 @@
         "stepId": "classified",
         "stepName": "Classification applied",
         "stepType": "AUTOMATED",
-        "description": "The classification, priority and summary are on the ticket (tickets.ticket.classify, source workflow, undoable)."
+        "description": "The classification, priority and summary are on the ticket (tickets.ticket.classify, source workflow, undoable), or a consultant's manual classification was kept and routing uses the human values."
       },
       {
         "stepId": "manual_review",
@@ -103,8 +103,8 @@
               "input": {
                 "ticketId": "{{context.ticketId}}",
                 "ticketNumber": "{{context.ticketNumber}}",
-                "identification": "{{context.identification}}",
-                "classification": "{{context.classification}}"
+                "identification": "{{context.triage_route.result.identification}}",
+                "classification": "{{context.triage_route.result.classification}}"
               },
               "onResult": { "alwaysAsk": true },
               "subject": {
@@ -244,13 +244,40 @@
             "activityType": "EXECUTE_FUNCTION",
             "config": {
               "functionName": "triage_agents.route",
-              "args": { "identification": "{{context.identification}}", "classification": "{{context.classification}}" }
+              "args": { "ticketId": "{{context.ticketId}}", "identification": "{{context.identification}}", "classification": "{{context.classification}}" }
             }
           }
         ]
       },
       { "transitionId": "t_classify_error", "transitionName": "Classifier failed", "fromStepId": "classify", "toStepId": "ai_failed", "trigger": "auto", "priority": 90, "kind": "outcome", "outcomeKind": "error" },
       { "transitionId": "t_classify_blocked", "transitionName": "Classifier blocked", "fromStepId": "classify", "toStepId": "grounding_failed", "trigger": "auto", "priority": 80, "kind": "outcome", "outcomeKind": "guardrailBlocked" },
+      {
+        "transitionId": "t_keep_human_classification",
+        "transitionName": "Keep the consultant's classification",
+        "fromStepId": "policy",
+        "toStepId": "classified",
+        "trigger": "auto",
+        "priority": 110,
+        "condition": { "field": "triage_route.result.humanClassified", "operator": "=", "value": true },
+        "activities": [
+          {
+            "activityId": "stage_classified_human",
+            "activityName": "stage_classified_human",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": {
+                "ticketId": "{{context.ticketId}}",
+                "ticketNumber": "{{context.ticketNumber}}",
+                "stage": "classifying",
+                "identification": "{{context.triage_route.result.identification}}",
+                "classification": "{{context.triage_route.result.classification}}",
+                "route": "{{context.triage_route.result}}"
+              }
+            }
+          }
+        ]
+      },
       {
         "transitionId": "t_apply_classification",
         "transitionName": "Apply classification",
