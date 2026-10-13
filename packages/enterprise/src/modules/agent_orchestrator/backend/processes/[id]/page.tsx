@@ -36,6 +36,7 @@ import {
 import type { MilestoneStage } from '../../../lib/tasks/milestones'
 import type { ProcessOutcome } from '../../../lib/tasks/outcome'
 import { ProcessOutcomeLink } from '../../../components/ProcessOutcomeLink'
+import { ProcessFlowTrace } from '../../../components/ProcessFlowTrace'
 import {
   mapProcessProjection,
   type ProcessInstanceStatus,
@@ -376,6 +377,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const [milestoneStages, setMilestoneStages] = React.useState<MilestoneStage[]>([])
   const [outcome, setOutcome] = React.useState<{ value: ProcessOutcome; href: string | null } | null>(null)
   const [degraded, setDegraded] = React.useState(false)
+  const [attempts, setAttempts] = React.useState<string[]>([])
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
   const [isLoading, setIsLoading] = React.useState(true)
@@ -449,6 +451,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
         lastActivityAt: proposalRows[proposalRows.length - 1]?.updatedAt ?? null,
       }
       setProjection(header ?? fallbackHeader)
+      setAttempts(readAttempts(headerCall.result?.execution))
       setDegraded(!header)
       setProposals(proposalRows)
 
@@ -819,9 +822,29 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             />
           ) : null}
         </div>
+
+        <div className="mt-6 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <ProcessFlowTrace
+            executionId={attempts[attempts.length - 1] ?? workflowInstanceId}
+            attempts={attempts.length > 1 ? attempts : undefined}
+            showAttemptSelector={attempts.length > 1}
+            allowRerun
+            onRerunStarted={(result) => router.push(`/backend/processes/${encodeURIComponent(result.executionId)}`)}
+          />
+        </div>
       </PageBody>
     </Page>
   )
+}
+
+function readAttempts(execution: Record<string, unknown> | undefined): string[] {
+  if (!execution || typeof execution.id !== 'string') return []
+  const triggeredBy = execution.triggeredBy ?? execution.triggered_by
+  const rerunOf =
+    triggeredBy && typeof triggeredBy === 'object' && !Array.isArray(triggeredBy)
+      ? (triggeredBy as Record<string, unknown>).rerunOfExecutionId
+      : null
+  return typeof rerunOf === 'string' ? [rerunOf, execution.id] : [execution.id]
 }
 
 function HeaderFact({ label, value }: { label: string; value: string }) {
