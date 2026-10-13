@@ -37,6 +37,7 @@ import type { MilestoneStage } from '../../../lib/tasks/milestones'
 import type { ProcessOutcome } from '../../../lib/tasks/outcome'
 import { ProcessOutcomeLink } from '../../../components/ProcessOutcomeLink'
 import { ProcessFlowTrace } from '../../../components/ProcessFlowTrace'
+import { ProposalDecisionCard } from '../../../components/ProposalDecisionCard'
 import {
   mapProcessProjection,
   type ProcessInstanceStatus,
@@ -378,6 +379,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const [outcome, setOutcome] = React.useState<{ value: ProcessOutcome; href: string | null } | null>(null)
   const [degraded, setDegraded] = React.useState(false)
   const [attempts, setAttempts] = React.useState<string[]>([])
+  const [reloadToken, setReloadToken] = React.useState(0)
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
   const [isLoading, setIsLoading] = React.useState(true)
@@ -490,7 +492,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
     return () => {
       cancelled = true
     }
-  }, [workflowInstanceId, t])
+  }, [workflowInstanceId, t, reloadToken])
 
   const steps = React.useMemo(
     () => buildSteps(proposals, runsById, t),
@@ -732,6 +734,16 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             </div>
           ) : null}
         </section>
+
+        {oldestPendingProposalId ? (
+          <div className="mt-6">
+            <ProposalDecisionCard
+              key={oldestPendingProposalId}
+              proposalId={oldestPendingProposalId}
+              onDisposed={() => setReloadToken((value) => value + 1)}
+            />
+          </div>
+        ) : null}
 
         {/* Split view: activity trace ↔ selected step detail */}
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
