@@ -92,11 +92,18 @@ const ARTICLES: Record<string, Record<string, unknown>> = {
   'general.identification.unknown_booking': { title: 'Unknown booking', automationLevel: 'manual_only' },
 }
 
+const FINANCE_REVIEW_V4: Record<string, unknown> = {
+  procedureSteps: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map((id) => ({ id, text: id })),
+  requiredChecks: [{ key: 'owner_verified' }, { key: 'overpayment_confirmed' }, { key: 'iban_present' }, { key: 'finance_review' }],
+}
+
+let kbVersion = 3
+
 function articleSnapshot(key: string): Record<string, unknown> {
   const [category, subcategory] = key.split('.')
   return {
     key,
-    version: 3,
+    version: kbVersion,
     category: { key: category, name: category[0].toUpperCase() + category.slice(1) },
     subcategory: { key: `${category}.${subcategory}`, name: subcategory.replaceAll('_', ' ') },
     procedureSteps: [],
@@ -104,6 +111,7 @@ function articleSnapshot(key: string): Record<string, unknown> {
     recommendedActions: [],
     replyTemplate: null,
     ...ARTICLES[key],
+    ...(kbVersion === 4 && key === 'payments.refunds.overpayment_refund' ? FINANCE_REVIEW_V4 : {}),
   }
 }
 
@@ -176,7 +184,7 @@ function buildTools(scenario: TriageScenario) {
       inputSchema: z.object({ key: z.string(), version: z.number().optional().nullable() }),
       execute: async ({ key }) =>
         ARTICLES[key]
-          ? { found: true, key, version: 3, citation: `${key}@3`, publishedAt: '2026-10-01T00:00:00.000Z', article: articleSnapshot(key) }
+          ? { found: true, key, version: kbVersion, citation: `${key}@${kbVersion}`, publishedAt: '2026-10-01T00:00:00.000Z', article: articleSnapshot(key) }
           : { found: false, key, version: null },
     }),
   }
@@ -248,5 +256,33 @@ describe('scripted triage fixtures replay the six demo scenarios', () => {
     if (scenario.key === 'payment_not_visible') {
       expect(advice.proposal.evidence.uncertainty[0]).toMatchObject({ code: 'payment_not_visible', blocking: true })
     }
+  })
+})
+
+describe('scripted advisor follows a re-published article (KB edit → re-run)', () => {
+  afterEach(() => {
+    kbVersion = 3
+  })
+
+  it('reports the new finance review check, adds its template sentence and cites v4', async () => {
+    kbVersion = 4
+    const scenario = TRIAGE_SCENARIOS.find((entry) => entry.key === 'overpayment_refund') as TriageScenario
+    const identification = await runAgent(CONTEXT_IDENTIFIER_AGENT_ID, { ticketId: TICKET_ID }, scenario, contextIdentifierResultSchema)
+    const classification = await runAgent(CLASSIFIER_AGENT_ID, { ticketId: TICKET_ID, identification: identification.data }, scenario, classifierResultSchema)
+    expect(classification.data.topicVersion).toBe(4)
+    const advice = await runAgent(
+      RESOLUTION_ADVISOR_AGENT_ID,
+      { ticketId: TICKET_ID, ticketNumber: 'TCK-000001', identification: identification.data, classification: classification.data },
+      scenario,
+      resolutionAdvisorResultSchema,
+    )
+    expect(advice.proposal.evidence.checks.map((check) => check.key)).toContain('finance_review')
+    expect(advice.proposal.evidence.citations[0].ref).toBe('payments.refunds.overpayment_refund@4')
+    const reply = advice.proposal.options[0].actions.find((action) => action.type === 'tickets.reply.send')
+    expect(JSON.stringify(reply?.payload)).toContain('finance team reviews the refund')
+    const verdict = await verifyProposalGrounding(advice.proposal, async (key, version) =>
+      ARTICLES[key] && version === 4 ? toArticlePolicy(key, 4, articleSnapshot(key)) : null,
+    )
+    expect(verdict).toMatchObject({ state: 'verified', issues: [] })
   })
 })

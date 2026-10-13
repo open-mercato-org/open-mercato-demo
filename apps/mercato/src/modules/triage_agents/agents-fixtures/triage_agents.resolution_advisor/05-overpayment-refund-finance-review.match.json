@@ -1,0 +1,154 @@
+{
+  "match": {
+    "input.classification.topicKey": "payments.refunds.overpayment_refund",
+    "input.classification.extracted.bankAccount": {
+      "exists": true
+    },
+    "tools.knowledge_articles.get_article.found": true,
+    "tools.reservations.get_details.balance.overpayment": {
+      "gt": 0
+    },
+    "tools.knowledge_articles.get_article.article.requiredChecks": {
+      "contains": "\"finance_review\""
+    }
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "{{input.classification.topicKey}}",
+            "version": "{{input.classification.topicVersion}}"
+          }
+        },
+        {
+          "toolName": "reservations.get_details",
+          "input": {
+            "reservationId": "{{input.identification.reservation.reservationId}}"
+          }
+        },
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "proposal",
+    "proposal": {
+      "options": [
+        {
+          "id": "refund_and_reply",
+          "label": "Verify the overpayment and request a refund",
+          "rationale": "The sender owns the booking, the ledger shows an overpayment and an IBAN was provided, so the article's refund and reply actions apply. The refund is above 300 EUR, so the article requires a finance review and no refund date is promised.",
+          "confidence": 0.91,
+          "actions": [
+            {
+              "type": "reservations.refund.request",
+              "payload": {
+                "reservationId": "{{input.identification.reservation.reservationId}}",
+                "amount": "{{tools.reservations.get_details.balance.overpayment}}",
+                "currencyCode": "{{tools.reservations.get_details.balance.currencyCode}}",
+                "bankAccountNumber": "{{input.classification.extracted.bankAccount}}",
+                "reason": "Overpayment per reservation balance",
+                "relatedTicketId": "{{input.ticketId}}",
+                "sourceType": "agent_proposal"
+              },
+              "citations": [
+                "{{tools.knowledge_articles.get_article.citation}}#S4"
+              ]
+            },
+            {
+              "type": "tickets.reply.send",
+              "payload": {
+                "ticketId": "{{input.ticketId}}",
+                "subject": "Re: {{tools.tickets.get_ticket.ticket.subject}}",
+                "body": "Dear {{tools.reservations.get_details.reservation.customerName}},\n\nWe confirm that we have registered your request to refund the overpayment of {{tools.reservations.get_details.balance.overpayment}} {{tools.reservations.get_details.balance.currencyCode}} for booking {{tools.reservations.get_details.reservation.bookingNumber}}. The amount will be returned to the bank account you provided.\n\nBecause the amount is above 300 EUR, our finance team reviews the refund first; we will confirm the payout date once the review is complete.\n\nThank you for letting us know about the double payment.\n\nKind regards,\nCustomer Service",
+                "resolveAfterSend": false
+              },
+              "citations": [
+                "{{tools.knowledge_articles.get_article.citation}}#S5",
+                "{{tools.knowledge_articles.get_article.citation}}#S6"
+              ]
+            }
+          ]
+        }
+      ],
+      "rationale": "Overpayment of {{tools.reservations.get_details.balance.overpayment}} {{tools.reservations.get_details.balance.currencyCode}} confirmed against the payment ledger.",
+      "evidence": {
+        "checks": [
+          {
+            "key": "owner_verified",
+            "step": "S1",
+            "passed": true,
+            "evidence": "The sender email matches the booking contact of {{tools.reservations.get_details.reservation.bookingNumber}}."
+          },
+          {
+            "key": "overpayment_confirmed",
+            "step": "S2",
+            "passed": true,
+            "evidence": "paid {{tools.reservations.get_details.balance.paidTotal}} > total {{tools.reservations.get_details.balance.totalPrice}} {{tools.reservations.get_details.balance.currencyCode}} (overpayment {{tools.reservations.get_details.balance.overpayment}})"
+          },
+          {
+            "key": "iban_present",
+            "step": "S3",
+            "passed": true,
+            "evidence": "The message contains a valid IBAN for the refund."
+          },
+          {
+            "key": "finance_review",
+            "step": "S6",
+            "passed": true,
+            "evidence": "Refund of {{tools.reservations.get_details.balance.overpayment}} {{tools.reservations.get_details.balance.currencyCode}} is above 300 EUR: flagged for finance review, no refund date promised."
+          }
+        ],
+        "citations": [
+          {
+            "kind": "kb",
+            "ref": "{{tools.knowledge_articles.get_article.citation}}",
+            "label": "{{tools.knowledge_articles.get_article.article.category.name}} › {{tools.knowledge_articles.get_article.article.subcategory.name}} › {{tools.knowledge_articles.get_article.article.title}} (v{{tools.knowledge_articles.get_article.version}})",
+            "steps": [
+              "S1",
+              "S2",
+              "S3",
+              "S4",
+              "S5",
+              "S6"
+            ]
+          }
+        ],
+        "segments": [
+          {
+            "source": "template",
+            "ref": "{{tools.knowledge_articles.get_article.citation}}#reply_template",
+            "text": "Dear {{tools.reservations.get_details.reservation.customerName}},\n\nWe confirm that we have registered your request to refund the overpayment of {{tools.reservations.get_details.balance.overpayment}} {{tools.reservations.get_details.balance.currencyCode}} for booking {{tools.reservations.get_details.reservation.bookingNumber}}. The amount will be returned to the bank account you provided."
+          },
+          {
+            "source": "template",
+            "ref": "{{tools.knowledge_articles.get_article.citation}}#S6",
+            "text": "\n\nBecause the amount is above 300 EUR, our finance team reviews the refund first; we will confirm the payout date once the review is complete."
+          },
+          {
+            "source": "generated",
+            "ref": null,
+            "text": "\n\nThank you for letting us know about the double payment."
+          },
+          {
+            "source": "template",
+            "ref": "{{tools.knowledge_articles.get_article.citation}}#reply_template",
+            "text": "\n\nKind regards,\nCustomer Service"
+          }
+        ],
+        "uncertainty": []
+      }
+    }
+  },
+  "usage": {
+    "inputTokens": 3200,
+    "outputTokens": 520
+  }
+}
