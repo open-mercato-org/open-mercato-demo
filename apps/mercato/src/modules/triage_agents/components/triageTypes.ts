@@ -62,13 +62,14 @@ export type TriageView = {
   updatedAt: string
 }
 
-export type TriageStatus = 'analyzing' | 'awaiting_approval' | 'applying' | 'assisted' | 'manual_review' | 'failed'
+export type TriageStatus = 'analyzing' | 'advising' | 'awaiting_approval' | 'applying' | 'assisted' | 'manual_review' | 'failed'
 
 const ANALYZING_STAGES = new Set(['queued', 'identifying', 'classifying'])
 
 export function resolveTriageStatus(triage: Pick<TriageView, 'stage' | 'aiMode'> | null | undefined): TriageStatus | null {
   if (!triage) return null
   if (triage.stage === 'failed') return 'failed'
+  if (triage.stage === 'advising') return 'advising'
   if (triage.stage === 'awaiting_approval') return 'awaiting_approval'
   if (triage.stage === 'applying') return 'applying'
   if (ANALYZING_STAGES.has(triage.stage)) return 'analyzing'
@@ -77,6 +78,7 @@ export function resolveTriageStatus(triage: Pick<TriageView, 'stage' | 'aiMode'>
 
 export const TRIAGE_STATUS_VARIANTS: Record<TriageStatus, StatusBadgeVariant> = {
   analyzing: 'neutral',
+  advising: 'neutral',
   awaiting_approval: 'info',
   applying: 'info',
   assisted: 'info',
@@ -86,6 +88,7 @@ export const TRIAGE_STATUS_VARIANTS: Record<TriageStatus, StatusBadgeVariant> = 
 
 export const TRIAGE_STATUS_LABEL_KEYS: Record<TriageStatus, { key: string; fallback: string }> = {
   analyzing: { key: 'triage_agents.status.analyzing', fallback: 'Analyzing…' },
+  advising: { key: 'triage_agents.status.advising', fallback: 'Preparing proposal…' },
   awaiting_approval: { key: 'triage_agents.status.awaitingApproval', fallback: 'Awaiting approval' },
   applying: { key: 'triage_agents.status.applying', fallback: 'Applying' },
   assisted: { key: 'triage_agents.status.assisted', fallback: 'Assisted' },

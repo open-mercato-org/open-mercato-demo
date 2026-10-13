@@ -368,7 +368,18 @@
         "fromStepId": "classified",
         "toStepId": "resolve",
         "trigger": "auto",
-        "priority": 0
+        "priority": 0,
+        "activities": [
+          {
+            "activityId": "stage_advising",
+            "activityName": "stage_advising",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "functionName": "triage_agents.record_stage",
+              "args": { "ticketId": "{{context.ticketId}}", "stage": "advising" }
+            }
+          }
+        ]
       },
       {
         "transitionId": "t_manual_done",

@@ -36,6 +36,7 @@ export const TRIAGE_STAGES = [
   'queued',
   'identifying',
   'classifying',
+  'advising',
   'awaiting_approval',
   'applying',
   'done',

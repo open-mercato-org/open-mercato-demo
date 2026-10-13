@@ -1,6 +1,8 @@
 {
   "triage_agents.card.attempt": "Attempt {attempt}",
   "triage_agents.card.category": "Category",
+  "triage_agents.card.classificationKept": "Kept the consultant's classification; the AI classification was not applied.",
+  "triage_agents.card.classificationSource": "Classification",
   "triage_agents.card.customer": "Customer",
   "triage_agents.card.draft": "Draft",
   "triage_agents.card.empty": "This ticket has not been triaged by AI yet.",
@@ -55,6 +57,7 @@
   "triage_agents.scenarios.sent": "{count} demo email(s) sent.",
   "triage_agents.scenarios.submit": "Send",
   "triage_agents.scenarios.title": "Send demo scenario",
+  "triage_agents.status.advising": "Preparing proposal…",
   "triage_agents.status.analyzing": "Analyzing…",
   "triage_agents.status.applying": "Applying",
   "triage_agents.status.assisted": "Assisted",

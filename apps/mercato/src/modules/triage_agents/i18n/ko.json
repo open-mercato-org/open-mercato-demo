@@ -1,6 +1,8 @@
 {
   "triage_agents.card.attempt": "Attempt {attempt}",
   "triage_agents.card.category": "Category",
+  "triage_agents.card.classificationKept": "상담원의 분류를 유지했으며 AI 분류는 적용되지 않았습니다.",
+  "triage_agents.card.classificationSource": "분류",
   "triage_agents.card.customer": "Customer",
   "triage_agents.card.draft": "Draft",
   "triage_agents.card.empty": "This ticket has not been triaged by AI yet.",
@@ -55,6 +57,7 @@
   "triage_agents.scenarios.sent": "{count} demo email(s) sent.",
   "triage_agents.scenarios.submit": "Send",
   "triage_agents.scenarios.title": "Send demo scenario",
+  "triage_agents.status.advising": "제안 준비 중…",
   "triage_agents.status.analyzing": "Analyzing…",
   "triage_agents.status.applying": "Applying",
   "triage_agents.status.assisted": "Assisted",

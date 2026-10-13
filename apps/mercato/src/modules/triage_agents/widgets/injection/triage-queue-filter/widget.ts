@@ -1,7 +1,7 @@
 import type { InjectionFilterWidget } from '@open-mercato/shared/modules/widgets/injection'
 import { TRIAGE_STATUS_LABEL_KEYS, resolveTriageStatus, type TriageStatus } from '../../../components/triageTypes'
 
-const STATUSES: TriageStatus[] = ['analyzing', 'awaiting_approval', 'applying', 'assisted', 'manual_review', 'failed']
+const STATUSES: TriageStatus[] = ['analyzing', 'advising', 'awaiting_approval', 'applying', 'assisted', 'manual_review', 'failed']
 
 function readTriage(row: unknown): { stage: string; aiMode: 'assisted' | 'manual_review' | null } | null {
   if (!row || typeof row !== 'object') return null

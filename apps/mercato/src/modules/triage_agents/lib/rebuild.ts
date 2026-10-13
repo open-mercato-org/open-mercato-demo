@@ -51,6 +51,7 @@ export function deriveStageArgs(context: Loose, status: string, currentStepId: s
   if (status !== 'COMPLETED') {
     if (currentStepId === 'resolve' && base.proposalId && !disposition) return { ...base, stage: 'awaiting_approval', aiMode: 'assisted' }
     if (currentStepId === 'apply_proposal' || currentStepId === 'effected') return { ...base, stage: 'applying', disposition }
+    if (currentStepId === 'resolve' && !disposition) return { ...base, stage: 'advising' }
     if (base.classification) return { ...base, stage: 'classifying' }
     return base
   }

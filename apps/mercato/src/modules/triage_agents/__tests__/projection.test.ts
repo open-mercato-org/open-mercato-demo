@@ -117,6 +117,7 @@ describe('projection rebuild', () => {
     expect(deriveStageArgs({ ...base, disposition: 'rejected' }, 'COMPLETED', 'end')).toMatchObject({ reasonCode: 'proposal_rejected', draftState: 'rejected' })
     expect(deriveStageArgs(base, 'FAILED', 'identify')).toMatchObject({ stage: 'failed', reasonCode: 'ai_failed' })
     expect(deriveStageArgs({ ...base, proposalId: '33333333-3333-4333-8333-333333333333' }, 'RUNNING', 'resolve')).toMatchObject({ stage: 'awaiting_approval' })
+    expect(deriveStageArgs(base, 'RUNNING', 'resolve')).toMatchObject({ stage: 'advising' })
     expect(deriveStageArgs({}, 'COMPLETED', 'end')).toBeNull()
   })
 })
@@ -124,6 +125,8 @@ describe('projection rebuild', () => {
 describe('queue status', () => {
   it('maps projection rows to the AI status filter', () => {
     expect(resolveTriageStatus({ stage: 'classifying', aiMode: null })).toBe('analyzing')
+    expect(resolveTriageStatus({ stage: 'advising', aiMode: null })).toBe('advising')
+    expect(matchesTriageStatus({ _triage: { stage: 'advising', aiMode: null } }, 'advising')).toBe(true)
     expect(resolveTriageStatus({ stage: 'done', aiMode: 'manual_review' })).toBe('manual_review')
     expect(matchesTriageStatus({ _triage: { stage: 'awaiting_approval', aiMode: 'assisted' } }, 'awaiting_approval')).toBe(true)
     expect(matchesTriageStatus({ _triage: null }, 'assisted')).toBe(false)
