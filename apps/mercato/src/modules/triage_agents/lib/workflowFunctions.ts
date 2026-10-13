@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordStageArgsSchema } from '../data/validators'
 import { emitTriageAgentsEvent } from '../events'
-import { loadArticlePolicy, type KbArticlePolicy, type TriageScope } from './kbArticles'
+import { loadArticlePolicy, resolveKbVersionReader, type KbArticlePolicy, type KbArticleVersionReader, type TriageScope } from './kbArticles'
 import { computePriority, normalizeDays, type ComputePriorityResult } from './priorityPolicy'
 import { decideRoute, type RouteDecision } from './routePolicy'
 import { isRecord, noProposalFlag, parseMaybeJsonRecord, recordTriageStage, type RecordStageResult } from './projection'
@@ -72,16 +72,16 @@ function versionOf(classification: Record<string, unknown> | null | undefined, e
   return value !== null && value > 0 ? value : null
 }
 
-async function loadTopicArticle(
-  em: EntityManager,
+export async function loadTopicArticle(
+  reader: KbArticleVersionReader | null,
   scope: TriageScope,
   topicKey: string | null,
   topicVersion: number | null,
 ): Promise<KbArticlePolicy | null> {
   if (!topicKey) return null
-  const exact = await loadArticlePolicy(em, scope, topicKey, topicVersion)
+  const exact = await loadArticlePolicy(reader, scope, topicKey, topicVersion)
   if (exact || topicVersion === null) return exact
-  return loadArticlePolicy(em, scope, topicKey, null)
+  return loadArticlePolicy(reader, scope, topicKey, null)
 }
 
 export type ComputePriorityFunctionResult = ComputePriorityResult & { topicKey: string | null; priorityFloor: string | null; reviewPriority: ReviewPriority }
@@ -102,8 +102,7 @@ export function createComputePriorityFunction(container: ResolverLike): TriageWo
     const topicKey = topicOf(args.classification, args.topicKey)
     let priorityFloor = args.priorityFloor === undefined ? undefined : readString(args.priorityFloor)
     if (priorityFloor === undefined) {
-      const em = container.resolve<EntityManager>('em').fork()
-      const article = await loadTopicArticle(em, scope, topicKey, versionOf(args.classification, args.topicVersion))
+      const article = await loadTopicArticle(resolveKbVersionReader(container), scope, topicKey, versionOf(args.classification, args.topicVersion))
       priorityFloor = article?.priorityFloor ?? null
     }
     const days = args.daysToDeparture !== undefined ? normalizeDays(args.daysToDeparture) : resolveDaysToDeparture(args.identification)
@@ -154,9 +153,8 @@ export function createRouteFunction(container: ResolverLike): TriageWorkflowFunc
   return async (rawArgs, context) => {
     const args = parseArgs(routeArgsSchema, rawArgs, 'triage_agents.route')
     const scope = scopeOf(context)
-    const em = container.resolve<EntityManager>('em').fork()
     const classification = args.classification ?? null
-    const article = await loadTopicArticle(em, scope, topicOf(classification), versionOf(classification))
+    const article = await loadTopicArticle(resolveKbVersionReader(container), scope, topicOf(classification), versionOf(classification))
     const decision = decideRoute(args.identification ?? null, classification, article)
     return {
       ...decision,

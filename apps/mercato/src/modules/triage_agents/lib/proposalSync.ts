@@ -4,7 +4,7 @@ import { AgentProposal } from '@open-mercato/enterprise/modules/agent_orchestrat
 import { RESOLUTION_ADVISOR_AGENT_ID } from '../data/constants'
 import { TicketTriage } from '../data/entities'
 import { verifyProposalGrounding } from './grounding'
-import { loadArticlePolicy, type TriageScope } from './kbArticles'
+import { loadArticlePolicy, type KbArticleVersionReader, type TriageScope } from './kbArticles'
 import {
   findTriage,
   findTriageByWorkflowInstance,
@@ -66,7 +66,12 @@ function hasReplyAction(payload: Record<string, unknown> | null): boolean {
  * the recommended action, and runs the KB grounding verification (spec fallback:
  * cited article versions, steps and checks must exist; actions must be recommended).
  */
-export async function syncProposalCreated(em: EntityManager, scope: TriageScope, payload: ProposalCreatedPayload): Promise<TicketTriage | null> {
+export async function syncProposalCreated(
+  em: EntityManager,
+  scope: TriageScope,
+  payload: ProposalCreatedPayload,
+  kbReader: KbArticleVersionReader | null,
+): Promise<TicketTriage | null> {
   if (readString(payload.agentId) !== RESOLUTION_ADVISOR_AGENT_ID) return null
   const proposalId = readString(payload.id)
   if (!proposalId) return null
@@ -92,7 +97,7 @@ export async function syncProposalCreated(em: EntityManager, scope: TriageScope,
       triage.draftState = hasReplyAction(proposalPayload) ? 'prepared' : 'none'
     }
     triage.recommendedActionLabel = outcome.recommendedActionLabel
-    const verdict = await verifyProposalGrounding(proposalPayload, (key, version) => loadArticlePolicy(em, scope, key, version))
+    const verdict = await verifyProposalGrounding(proposalPayload, (key, version) => loadArticlePolicy(kbReader, scope, key, version))
     triage.groundingState = verdict.state
     triage.groundingIssues = verdict.issues
   }

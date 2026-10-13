@@ -1,4 +1,3 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 
@@ -95,35 +94,55 @@ export function toArticlePolicy(articleKey: string, version: number, rawSnapshot
   }
 }
 
-type VersionRow = { article_key?: unknown; version?: unknown; snapshot?: unknown }
+export const KB_VERSION_READER_KEY = 'knowledgeArticleVersionReader'
+
+export type KbArticleVersionRecord = { key: string; version: number; snapshot: unknown }
 
 /**
- * Reads a published knowledge article version through its table contract
- * (`knowledge_article_versions`, immutable rows) without importing the
- * knowledge_articles module. Soft-optional: a missing module or table yields null.
+ * Structural view of the `knowledgeArticleVersionReader` DI service exposed by the
+ * knowledge_articles module. Declared here so triage_agents never imports that module.
+ */
+export type KbArticleVersionReader = {
+  readVersion(scope: TriageScope, key: string, version?: number | null): Promise<KbArticleVersionRecord | null>
+}
+
+type ResolverLike = { resolve: <T = unknown>(name: string) => T }
+
+function isVersionReader(value: unknown): value is KbArticleVersionReader {
+  return isRecord(value) && typeof value.readVersion === 'function'
+}
+
+/** Soft-optional: null when the knowledge_articles module is not enabled. */
+export function resolveKbVersionReader(container: ResolverLike | null | undefined): KbArticleVersionReader | null {
+  if (!container) return null
+  try {
+    const reader = container.resolve<unknown>(KB_VERSION_READER_KEY)
+    return isVersionReader(reader) ? reader : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Reads a published knowledge article version through the knowledge_articles DI
+ * reader (immutable snapshots). Soft-optional: a missing module, article or a read
+ * failure yields null.
  */
 export async function loadArticlePolicy(
-  em: EntityManager,
+  reader: KbArticleVersionReader | null,
   scope: TriageScope,
   articleKey: string | null | undefined,
   version?: number | null,
 ): Promise<KbArticlePolicy | null> {
   const key = typeof articleKey === 'string' ? articleKey.trim() : ''
-  if (!key) return null
-  const params: unknown[] = [scope.tenantId, scope.organizationId, key]
-  let sql = 'SELECT article_key, version, snapshot FROM knowledge_article_versions WHERE tenant_id = ? AND organization_id = ? AND article_key = ?'
-  if (typeof version === 'number' && Number.isInteger(version) && version > 0) {
-    sql += ' AND version = ?'
-    params.push(version)
-  }
-  sql += ' ORDER BY version DESC LIMIT 1'
+  if (!key || !reader) return null
+  const requested = typeof version === 'number' && Number.isInteger(version) && version > 0 ? version : null
   try {
-    const rows = (await em.getConnection().execute(sql, params)) as VersionRow[]
-    const row = Array.isArray(rows) ? rows[0] : undefined
-    if (!row) return null
-    const rowVersion = typeof row.version === 'number' ? row.version : Number(row.version)
-    if (!Number.isFinite(rowVersion)) return null
-    return toArticlePolicy(String(row.article_key ?? key), rowVersion, row.snapshot)
+    const record = await reader.readVersion(scope, key, requested)
+    if (!record) return null
+    const recordVersion = typeof record.version === 'number' ? record.version : Number(record.version)
+    if (!Number.isFinite(recordVersion)) return null
+    return toArticlePolicy(readString(record.key) ?? key, recordVersion, record.snapshot)
   } catch (err) {
     logger.warn('Knowledge article lookup unavailable', { articleKey: key, error: err instanceof Error ? err.message : String(err) })
     reportError(err, { module: 'triage_agents', code: 'triage_agents.kb_lookup_failed' })

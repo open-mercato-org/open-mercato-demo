@@ -27,10 +27,29 @@ const complaintSnapshot = {
   recommendedActions: [],
 }
 
-function containerWith(rows: Array<Record<string, unknown>>) {
-  const execute = jest.fn(async () => rows)
-  const em = { fork: () => em, getConnection: () => ({ execute }) }
-  return { container: { resolve: <T,>() => em as unknown as T }, execute }
+type VersionRow = { key: string; version: number; snapshot: unknown }
+
+function containerWith(rows: VersionRow[]) {
+  const readVersion = jest.fn(async (_scope: unknown, key: string, version?: number | null) => {
+    const match = rows.find((row) => row.key === key && (version === null || version === undefined || row.version === version))
+    return match ?? null
+  })
+  const reader = { readVersion }
+  const container = {
+    resolve: <T,>(name: string): T => {
+      if (name === 'knowledgeArticleVersionReader') return reader as unknown as T
+      throw new Error(`[internal] unexpected resolve ${name}`)
+    },
+  }
+  return { container, readVersion }
+}
+
+function containerWithoutKnowledgeBase() {
+  return {
+    resolve: <T,>(name: string): T => {
+      throw new Error(`[internal] ${name} is not registered`)
+    },
+  }
 }
 
 const tomIdentification = {
@@ -60,15 +79,15 @@ const complaintClassification = {
 
 describe('triage workflow functions', () => {
   it('compute_priority reads the priority floor from the article', async () => {
-    const { container, execute } = containerWith([{ article_key: complaintClassification.topicKey, version: 1, snapshot: complaintSnapshot }])
+    const { container, readVersion } = containerWith([{ key: complaintClassification.topicKey, version: 1, snapshot: complaintSnapshot }])
     const fn = createComputePriorityFunction(container)
     const result = await fn({ identification: tomIdentification, classification: complaintClassification }, context)
     expect(result).toMatchObject({ priority: 'normal', priorityReason: 'normal – departure date has passed + topic minimum', priorityFloor: 'normal' })
-    expect(execute).toHaveBeenCalledWith(expect.stringContaining('knowledge_article_versions'), [TENANT, ORG, complaintClassification.topicKey, 1])
+    expect(readVersion).toHaveBeenCalledWith({ tenantId: TENANT, organizationId: ORG }, complaintClassification.topicKey, 1)
   })
 
   it('route sends a manual-only topic to its queue and prepares the classify input', async () => {
-    const { container } = containerWith([{ article_key: complaintClassification.topicKey, version: 1, snapshot: complaintSnapshot }])
+    const { container } = containerWith([{ key: complaintClassification.topicKey, version: 1, snapshot: complaintSnapshot }])
     const fn = createRouteFunction(container)
     const result = await fn({ identification: tomIdentification, classification: complaintClassification }, context)
     expect(result.route).toBe('manual')
@@ -92,6 +111,23 @@ describe('triage workflow functions', () => {
     const result = await createRouteFunction(container)({ identification: tomIdentification, classification: complaintClassification }, context)
     expect(result.reasonCode).toBe('kb_article_missing')
     expect(result.classify.categoryPathSnapshot).toBeNull()
+  })
+
+  it('route treats a missing knowledge_articles module as a missing article', async () => {
+    const result = await createRouteFunction(containerWithoutKnowledgeBase())(
+      { identification: tomIdentification, classification: complaintClassification },
+      context,
+    )
+    expect(result.reasonCode).toBe('kb_article_missing')
+    expect(result.article).toBeNull()
+  })
+
+  it('compute_priority falls back to no floor when the knowledge base is absent', async () => {
+    const result = await createComputePriorityFunction(containerWithoutKnowledgeBase())(
+      { identification: tomIdentification, classification: complaintClassification },
+      context,
+    )
+    expect(result.priorityFloor).toBeNull()
   })
 
   it('refuses a context without tenant scope', async () => {
