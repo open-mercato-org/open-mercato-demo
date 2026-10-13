@@ -148,8 +148,10 @@ Plural module id ✅ · scoping ✅ · stable keys ✅ · `makeCrudRoute` ✅ ·
 - **Extra events:** `category.created`, `category.deleted` and `article.deleted`. `article.published` is persistent and has `clientBroadcast`.
 - **Step ids:** reordering renumbers S1…Sn; add and remove keep the existing ids. The server validates that step, check and action keys are unique and that every reference resolves.
 - **Defaults:** `text[]` and `jsonb` columns have no DB default (MikroORM cannot convert one); the app supplies the values.
+- **DI reader for other modules (2026-10-13):** `di.ts` registers `knowledgeArticleVersionReader` (`lib/versionReader.ts`): `readVersion(scope, key, version?)` returns the immutable published snapshot `{ key, version, citation, publishedAt, snapshot }` or null — the sanctioned read path for modules that must not import knowledge_articles or read its tables (triage_agents resolves it soft-optionally).
 
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — Citable `procedure_steps`, immutable `knowledge_article_versions`, publish endpoint; English seed content.
 - **2026-10-12** — Implementation notes from the Phase 1b build.
+- **2026-10-13** — `knowledgeArticleVersionReader` DI service for cross-module reads of published versions.
