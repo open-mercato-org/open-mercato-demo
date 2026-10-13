@@ -135,6 +135,12 @@
         "description": "The consultant rejected the proposal; nothing was sent."
       },
       {
+        "stepId": "rejected_recorded",
+        "stepName": "Rejection recorded",
+        "stepType": "AUTOMATED",
+        "description": "The rejection is on the projection; a proposal superseded by a re-run does not flag the ticket."
+      },
+      {
         "stepId": "apply_proposal",
         "stepName": "Apply approved proposal",
         "stepType": "AUTOMATED",
@@ -476,26 +482,13 @@
         ]
       },
       {
-        "transitionId": "t_rejected_flag",
-        "transitionName": "Flag rejected proposal",
+        "transitionId": "t_rejected_record",
+        "transitionName": "Record rejected proposal",
         "fromStepId": "rejected",
-        "toStepId": "end",
+        "toStepId": "rejected_recorded",
         "trigger": "auto",
         "priority": 100,
         "activities": [
-          {
-            "activityId": "flag_rejected",
-            "activityName": "flag_rejected",
-            "activityType": "UPDATE_ENTITY",
-            "config": {
-              "commandId": "tickets.ticket.flag_manual_review",
-              "input": {
-                "id": "{{context.ticketId}}",
-                "reasonCode": "proposal_rejected",
-                "reason": "The consultant rejected the AI proposal; nothing was sent to the customer."
-              }
-            }
-          },
           {
             "activityId": "stage_rejected",
             "activityName": "stage_rejected",
@@ -511,6 +504,38 @@
                 "disposition": "rejected",
                 "draftState": "rejected",
                 "proposalId": "{{context.proposalId}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_rejected_superseded",
+        "transitionName": "Superseded by a re-run",
+        "fromStepId": "rejected_recorded",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 110,
+        "condition": { "field": "stage_rejected.result.superseded", "operator": "=", "value": true }
+      },
+      {
+        "transitionId": "t_rejected_flag",
+        "transitionName": "Flag rejected proposal",
+        "fromStepId": "rejected_recorded",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "flag_rejected",
+            "activityName": "flag_rejected",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "tickets.ticket.flag_manual_review",
+              "input": {
+                "id": "{{context.ticketId}}",
+                "reasonCode": "proposal_rejected",
+                "reason": "The consultant rejected the AI proposal; nothing was sent to the customer."
               }
             }
           }

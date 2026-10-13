@@ -211,8 +211,8 @@ function attemptRecord(row: TicketTriage): TriageAttemptRecord {
   }
 }
 
-function resetForNewAttempt(row: TicketTriage, workflowInstanceId: string | null): void {
-  const history = [...(row.attempts ?? []), attemptRecord(row)].slice(-MAX_ATTEMPT_HISTORY)
+function resetForNewAttempt(row: TicketTriage, workflowInstanceId: string | null, closing?: Partial<TriageAttemptRecord>): void {
+  const history = [...(row.attempts ?? []), { ...attemptRecord(row), ...(closing ?? {}) }].slice(-MAX_ATTEMPT_HISTORY)
   row.attempts = history
   row.attempt = row.attempt + 1
   row.workflowInstanceId = workflowInstanceId
@@ -243,6 +243,52 @@ export type RecordStageResult = {
   reasonCode: string | null
   reason: string | null
   attempt: number
+  superseded: boolean
+}
+
+export const SUPERSEDED_REASON_CODE = 'superseded_by_rerun'
+
+export function isSupersededAttempt(row: Pick<TicketTriage, 'attempts'>, workflowInstanceId: string | null): boolean {
+  if (!workflowInstanceId) return false
+  return (row.attempts ?? []).some((entry) => entry.workflowInstanceId === workflowInstanceId)
+}
+
+/**
+ * Closes the current attempt before its pending proposal is superseded by a re-run:
+ * the attempt moves to the history (rejected, `superseded_by_rerun`) and the row waits
+ * for the new execution, so late writes of the old workflow are recognised as stale.
+ */
+export function supersedeCurrentAttempt(row: TicketTriage): void {
+  resetForNewAttempt(row, null, { disposition: 'rejected', reasonCode: SUPERSEDED_REASON_CODE })
+  row.stage = 'queued'
+}
+
+const ATTEMPT_STATE_KEYS = [
+  'attempts', 'attempt', 'workflowInstanceId', 'processExecutionId', 'stage', 'aiMode', 'reasonCode', 'reason', 'route',
+  'priority', 'priorityReason', 'identification', 'classification', 'uncertainty', 'confidence', 'recommendedActionLabel',
+  'proposalId', 'disposition', 'draftState', 'groundingState', 'groundingIssues', 'runIds',
+] as const satisfies ReadonlyArray<keyof TicketTriage>
+
+export type TriageAttemptState = Pick<TicketTriage, (typeof ATTEMPT_STATE_KEYS)[number]>
+
+export function captureAttemptState(row: TicketTriage): TriageAttemptState {
+  return Object.fromEntries(ATTEMPT_STATE_KEYS.map((key) => [key, row[key]])) as TriageAttemptState
+}
+
+export function restoreAttemptState(row: TicketTriage, state: TriageAttemptState): void {
+  Object.assign(row, state)
+}
+
+function resultOf(row: TicketTriage, superseded: boolean): RecordStageResult {
+  return {
+    ticketId: row.ticketId,
+    stage: row.stage,
+    aiMode: row.aiMode ?? null,
+    reasonCode: row.reasonCode ?? null,
+    reason: row.reason ?? null,
+    attempt: row.attempt,
+    superseded,
+  }
 }
 
 /**
@@ -266,6 +312,8 @@ export async function recordTriageStage(
       stage: args.stage,
     })
     em.persist(row)
+  } else if (isSupersededAttempt(row, workflowInstanceId)) {
+    return resultOf(row, true)
   } else if (workflowInstanceId && row.workflowInstanceId && row.workflowInstanceId !== workflowInstanceId) {
     resetForNewAttempt(row, workflowInstanceId)
   } else if (workflowInstanceId && !row.workflowInstanceId) {
@@ -320,14 +368,7 @@ export async function recordTriageStage(
   const runIds = await loadRunIds(em, scope, workflowInstanceId)
   if (runIds) row.runIds = { ...(row.runIds ?? {}), ...runIds }
   await em.flush()
-  return {
-    ticketId: row.ticketId,
-    stage: row.stage,
-    aiMode: row.aiMode ?? null,
-    reasonCode: row.reasonCode ?? null,
-    reason: row.reason ?? null,
-    attempt: row.attempt,
-  }
+  return resultOf(row, false)
 }
 
 export function draftStateFromEffects(effects: unknown): TriageDraftState | null {
@@ -354,6 +395,28 @@ export function mergeRunIds(current: TriageRunIds | null | undefined, agentId: s
   return next
 }
 
+export type TriageAttemptView = {
+  attempt: number
+  executionId: string | null
+  stage: TriageStage
+  aiMode: TriageAiMode | null
+  reasonCode: string | null
+  disposition: string | null
+  recordedAt: string
+}
+
+export function toAttemptViews(row: Pick<TicketTriage, 'attempts'>): TriageAttemptView[] {
+  return (row.attempts ?? []).filter(isRecord).map((entry) => ({
+    attempt: entry.attempt,
+    executionId: entry.processExecutionId ?? null,
+    stage: entry.stage,
+    aiMode: entry.aiMode ?? null,
+    reasonCode: entry.reasonCode ?? null,
+    disposition: entry.disposition ?? null,
+    recordedAt: entry.recordedAt,
+  }))
+}
+
 export type TriageView = {
   ticketId: string
   aiMode: TriageAiMode | null
@@ -371,6 +434,7 @@ export type TriageView = {
   executionId: string | null
   workflowInstanceId: string | null
   attempt: number
+  attempts: TriageAttemptView[]
   groundingState: string
   groundingIssues: string[]
   identification: Loose | null
@@ -397,6 +461,7 @@ export function toTriageView(row: TicketTriage): TriageView {
     executionId: row.processExecutionId ?? null,
     workflowInstanceId: row.workflowInstanceId ?? null,
     attempt: row.attempt,
+    attempts: toAttemptViews(row),
     groundingState: row.groundingState,
     groundingIssues: row.groundingIssues ?? [],
     identification: row.identification ?? null,

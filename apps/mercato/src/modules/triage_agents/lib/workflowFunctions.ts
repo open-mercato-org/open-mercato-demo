@@ -188,6 +188,7 @@ export function createRecordStageFunction(container: ResolverLike): TriageWorkfl
     const scope = scopeOf(context)
     const em = container.resolve<EntityManager>('em').fork()
     const result = await recordTriageStage(em, scope, args, context.workflowInstance.id)
+    if (result.superseded) return { ...result, flag: null }
     await emitTriageAgentsEvent(
       'triage_agents.triage.updated',
       { ticketId: result.ticketId, stage: result.stage, aiMode: result.aiMode, tenantId: scope.tenantId, organizationId: scope.organizationId },

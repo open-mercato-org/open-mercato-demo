@@ -14,13 +14,17 @@ export const metadata = {
 type RouteContext = { params: Promise<{ ticketId?: string }> }
 
 const paramsSchema = z.object({ ticketId: z.string().uuid() })
-const responseSchema = z.object({ executionId: z.string().uuid(), attempt: z.number().int() })
+const responseSchema = z.object({
+  executionId: z.string().uuid(),
+  attempt: z.number().int(),
+  supersededProposalIds: z.array(z.string().uuid()),
+})
 const errorSchema = z.object({ error: z.string(), code: z.string().optional() })
 
 export async function POST(req: Request, routeCtx: RouteContext) {
   try {
     const { ticketId } = paramsSchema.parse(await routeCtx.params)
-    rerunBodySchema.parse(await readJsonSafe(req, {}))
+    const body = rerunBodySchema.parse(await readJsonSafe(req, {}))
     const context = await resolveTriageRouteContext(req)
     const guarded = await runRouteMutationGuards({
       container: context.container,
@@ -30,11 +34,13 @@ export async function POST(req: Request, routeCtx: RouteContext) {
         resourceKind: 'triage_agents.ticket_triage',
         resourceId: ticketId,
         operation: 'custom',
-        mutationPayload: { ticketId },
+        mutationPayload: { ticketId, supersede: body.supersede === true },
       },
     })
     if (!guarded.ok) return guarded.response
-    const result = await startTriageRerun(context.container, context.ctx, context.scope, ticketId, context.userId)
+    const result = await startTriageRerun(context.container, context.ctx, context.scope, ticketId, context.userId, {
+      supersede: body.supersede === true,
+    })
     await guarded.runAfterSuccess()
     return NextResponse.json(result, { status: 202 })
   } catch (err) {
@@ -49,12 +55,13 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Start a new triage execution for a ticket',
       description:
-        'Starts the triage_agents.ticket_triage process for the ticket through its manual trigger (a new attempt). Refused with 409 pending_proposal while the current attempt waits for a consultant to dispose its proposal.',
+        'Starts the triage_agents.ticket_triage process for the ticket through its manual trigger (a new attempt). Refused with 409 pending_proposal while the current attempt waits for a consultant to dispose its proposal, unless `supersede: true`: the pending proposal is then rejected through the AO dispose command (reason superseded_by_rerun, requires agent_orchestrator.proposals.dispose), the superseded attempt does not flag the ticket, and the new execution records triggeredBy.rerunOfExecutionId.',
       requestBody: { contentType: 'application/json', schema: rerunBodySchema },
       responses: [{ status: 202, description: 'Execution accepted', schema: responseSchema }],
       errors: [
+        { status: 403, description: 'supersede without agent_orchestrator.proposals.dispose', schema: errorSchema },
         { status: 404, description: 'Ticket or process definition not found', schema: errorSchema },
-        { status: 409, description: 'A proposal is still pending', schema: errorSchema },
+        { status: 409, description: 'A proposal is still pending and supersede was not requested', schema: errorSchema },
       ],
     },
   },

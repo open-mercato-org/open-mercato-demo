@@ -4,9 +4,6 @@ import * as React from 'react'
 import Link from 'next/link'
 import { CheckCircle2, CircleHelp, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -14,7 +11,8 @@ import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { TriageStatusBadge } from './TriageStatusBadge'
 import { useTicketTriage } from './useTicketTriage'
-import type { TriageView } from './triageTypes'
+import { useTriageRerun } from './useTriageRerun'
+import { pendingProposalId, TRIAGE_DECISION_CARD_ANCHOR, type TriageView } from './triageTypes'
 
 type TicketLike = {
   summary?: unknown
@@ -58,35 +56,8 @@ export type TriageSummaryCardProps = {
 export function TriageSummaryCard({ ticketId, ticket }: TriageSummaryCardProps) {
   const t = useT()
   const { triage, loading, error, reload } = useTicketTriage(ticketId)
-  const [rerunning, setRerunning] = React.useState(false)
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
-    formId: string
-    resourceKind: string
-    resourceId: string
-    retryLastMutation: () => Promise<boolean>
-  }>({ contextId: RERUN_CONTEXT_ID })
-
-  const handleRerun = React.useCallback(async () => {
-    setRerunning(true)
-    try {
-      await runMutation({
-        operation: () =>
-          apiCallOrThrow(`/api/triage_agents/tickets/${encodeURIComponent(ticketId)}/rerun`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({}),
-          }),
-        mutationPayload: { ticketId },
-        context: { formId: RERUN_CONTEXT_ID, resourceKind: 'tickets.ticket', resourceId: ticketId, retryLastMutation },
-      })
-      flash(t('triage_agents.card.rerunStarted', 'Triage re-run started.'), 'success')
-      await reload()
-    } catch {
-      flash(t('triage_agents.card.rerunFailed', 'Could not re-run the triage.'), 'error')
-    } finally {
-      setRerunning(false)
-    }
-  }, [reload, retryLastMutation, runMutation, t, ticketId])
+  const { rerun, rerunning, ConfirmDialogElement } = useTriageRerun(ticketId, triage, RERUN_CONTEXT_ID, reload)
+  const proposalPending = pendingProposalId(triage)
 
   if (error === 'forbidden') return null
 
@@ -113,12 +84,19 @@ export function TriageSummaryCard({ ticketId, ticket }: TriageSummaryCardProps) 
         ) : null}
         {triage ? <TriageDetails triage={triage} ticket={ticket ?? null} /> : null}
         <div className="flex flex-wrap items-center gap-2">
-          {triage?.stage === 'awaiting_approval' && triage.proposalId ? (
-            <Button asChild variant="default">
-              <Link href={`/backend/caseload/${encodeURIComponent(triage.proposalId)}`} data-testid="triage-review-proposal">
-                {t('triage_agents.card.reviewProposal', 'Review proposal')}
-              </Link>
-            </Button>
+          {proposalPending ? (
+            <>
+              <Button asChild variant="default">
+                <a href={`#${TRIAGE_DECISION_CARD_ANCHOR}`} data-testid="triage-review-proposal">
+                  {t('triage_agents.card.reviewProposal', 'Review proposal')}
+                </a>
+              </Button>
+              <Button asChild variant="link" size="sm">
+                <Link href={`/backend/caseload/${encodeURIComponent(proposalPending)}`} data-testid="triage-open-caseload">
+                  {t('triage_agents.card.openInCaseload', 'Open in Caseload')}
+                </Link>
+              </Button>
+            </>
           ) : null}
           {triage?.executionId ? (
             <Button asChild variant="outline">
@@ -128,11 +106,12 @@ export function TriageSummaryCard({ ticketId, ticket }: TriageSummaryCardProps) 
               </Link>
             </Button>
           ) : null}
-          <Button type="button" variant="outline" onClick={() => { void handleRerun() }} disabled={rerunning} data-testid="triage-rerun">
+          <Button type="button" variant="outline" onClick={() => { void rerun() }} disabled={rerunning} data-testid="triage-rerun">
             <RefreshCw className="size-4" aria-hidden />
             {t('triage_agents.card.rerun', 'Re-run triage')}
           </Button>
         </div>
+        {ConfirmDialogElement}
       </CardContent>
     </Card>
   )

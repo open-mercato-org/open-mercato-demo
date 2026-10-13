@@ -7,6 +7,20 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 60,
     },
   ],
+  'detail:tickets.ticket:composer': [
+    {
+      widgetId: 'triage_agents.injection.triage-decision-card',
+      priority: 60,
+    },
+  ],
+  'detail:tickets.ticket:tabs': [
+    {
+      widgetId: 'triage_agents.injection.triage-flow-tab',
+      kind: 'tab',
+      groupLabel: 'triage_agents.flow.tabTitle',
+      priority: 50,
+    },
+  ],
   'data-table:tickets.ticket:columns': [
     {
       widgetId: 'triage_agents.injection.triage-queue-column',

@@ -38,6 +38,18 @@ export type TriageClassificationView = {
   source?: 'ai' | 'manual' | null
 }
 
+export const TRIAGE_DECISION_CARD_ANCHOR = 'triage-decision-card'
+
+export type TriageAttemptView = {
+  attempt: number
+  executionId: string | null
+  stage: string
+  aiMode: string | null
+  reasonCode: string | null
+  disposition: string | null
+  recordedAt: string
+}
+
 export type TriageView = {
   ticketId: string
   aiMode: 'assisted' | 'manual_review' | null
@@ -55,6 +67,7 @@ export type TriageView = {
   executionId: string | null
   workflowInstanceId: string | null
   attempt: number
+  attempts?: TriageAttemptView[]
   groundingState: string
   groundingIssues: string[]
   identification: TriageIdentificationView | null
@@ -99,4 +112,31 @@ export const TRIAGE_STATUS_LABEL_KEYS: Record<TriageStatus, { key: string; fallb
 
 export function isTriageView(value: unknown): value is TriageView {
   return Boolean(value) && typeof value === 'object' && typeof (value as { stage?: unknown }).stage === 'string'
+}
+
+export function pendingProposalId(triage: Pick<TriageView, 'stage' | 'proposalId' | 'disposition'> | null | undefined): string | null {
+  if (!triage || triage.stage !== 'awaiting_approval' || triage.disposition) return null
+  return triage.proposalId ?? null
+}
+
+/** Execution ids of every attempt of the ticket, oldest first, the current one last. */
+export function attemptExecutionIds(triage: Pick<TriageView, 'executionId' | 'attempts'> | null | undefined): string[] {
+  if (!triage) return []
+  const ordered = [...(triage.attempts ?? [])].sort((left, right) => left.attempt - right.attempt)
+  const ids: string[] = []
+  for (const entry of ordered) {
+    if (entry.executionId && !ids.includes(entry.executionId)) ids.push(entry.executionId)
+  }
+  if (triage.executionId) {
+    const index = ids.indexOf(triage.executionId)
+    if (index >= 0) ids.splice(index, 1)
+    ids.push(triage.executionId)
+  }
+  return ids
+}
+
+/** The execution the flow tab opens: the current attempt, else the latest recorded one. */
+export function currentExecutionId(triage: Pick<TriageView, 'executionId' | 'attempts'> | null | undefined): string | null {
+  const ids = attemptExecutionIds(triage)
+  return triage?.executionId ?? ids[ids.length - 1] ?? null
 }

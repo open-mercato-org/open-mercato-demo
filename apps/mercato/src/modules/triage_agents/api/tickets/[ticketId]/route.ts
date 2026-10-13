@@ -30,6 +30,17 @@ const triageViewSchema = z.object({
   executionId: z.string().nullable(),
   workflowInstanceId: z.string().nullable(),
   attempt: z.number().int(),
+  attempts: z.array(
+    z.object({
+      attempt: z.number().int(),
+      executionId: z.string().nullable(),
+      stage: z.string(),
+      aiMode: z.string().nullable(),
+      reasonCode: z.string().nullable(),
+      disposition: z.string().nullable(),
+      recordedAt: z.string(),
+    }),
+  ),
   groundingState: z.string(),
   groundingIssues: z.array(z.string()),
   identification: z.record(z.string(), z.unknown()).nullable(),
@@ -58,7 +69,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'The current AI triage result of a ticket',
-      description: 'Returns the ticket_triages projection (stage, AI status, reason, identification match levels, classification, uncertainty, proposal and execution ids) or null when the ticket was never triaged.',
+      description: 'Returns the ticket_triages projection (stage, AI status, reason, identification match levels, classification, uncertainty, proposal and execution ids, previous attempts with their execution ids) or null when the ticket was never triaged.',
       responses: [{ status: 200, description: 'Triage projection', schema: responseSchema }],
     },
   },
