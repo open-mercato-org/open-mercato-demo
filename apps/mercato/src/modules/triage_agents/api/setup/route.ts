@@ -16,6 +16,7 @@ const responseSchema = z.object({
   processDefinitionId: z.string().uuid().nullable(),
   processCreated: z.boolean(),
   enabledCommands: z.array(z.string()).nullable(),
+  autoStart: z.boolean(),
   scriptedProviderActive: z.boolean(),
 })
 
@@ -50,7 +51,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Create or refresh the triage workflow and process definition for the current organization',
       description:
-        'Idempotent. Writes the owned triage workflow definition (with its execution grant), enables the workflow-safe commands it uses for the tenant and creates the triage_agents.ticket_triage process definition (tickets.ticket.created event trigger + manual trigger) when missing. Also reports whether the scripted LLM provider is active (rehearsal mode).',
+        'Idempotent. Writes the owned triage workflow definition (with its execution grant), enables the workflow-safe commands it uses for the tenant and creates the triage_agents.ticket_triage process definition (tickets.ticket.created event trigger + manual trigger) when missing. The event trigger is enabled when triage auto-starts (OM_TRIAGE_AUTO_START, default on except in integration runs); `autoStart` reports it. Also reports whether the scripted LLM provider is active (rehearsal mode).',
       responses: [{ status: 200, description: 'Triage process ready', schema: responseSchema }],
     },
   },

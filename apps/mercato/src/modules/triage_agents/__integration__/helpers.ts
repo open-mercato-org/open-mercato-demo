@@ -24,11 +24,13 @@ export type TriageView = {
   groundingState: string
   groundingIssues: string[]
   identification: { reservation?: { match?: string; bookingNumber?: string | null; candidates?: unknown[] } } | null
-  classification: { topicKey?: string | null } | null
+  classification: { topicKey?: string | null; source?: string | null } | null
+  attempt: number
 }
 
 export type SetupResponse = {
   processDefinitionId: string | null
+  autoStart: boolean
   scriptedProviderActive: boolean
 }
 
@@ -290,6 +292,33 @@ export async function sendEmail(
   expect([200, 201], `simulate intake failed: ${JSON.stringify(body)}`).toContain(response.status())
   fixtures.ticketIds.push(body?.ticketId as string)
   return body?.ticketId as string
+}
+
+/**
+ * Starts triage for a ticket through the process' manual trigger. Integration runs
+ * keep the ticket-created trigger off (OM_TRIAGE_AUTO_START), so this spec opts its
+ * own tickets in explicitly instead of triaging every ticket other specs create.
+ */
+export async function startTriage(request: APIRequestContext, token: string, ticketId: string): Promise<void> {
+  const response = await apiRequest(request, 'POST', `/api/triage_agents/tickets/${ticketId}/rerun`, { token, data: {} })
+  expect(response.status(), `start triage failed: ${await response.text()}`).toBe(202)
+}
+
+async function readTicketUpdatedAt(request: APIRequestContext, token: string, ticketId: string): Promise<string | null> {
+  const response = await apiRequest(request, 'GET', `/api/tickets/tickets?id=${ticketId}&pageSize=1`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ items?: Array<{ updatedAt?: string | null }> }>(response)
+  return body?.items?.[0]?.updatedAt ?? null
+}
+
+export async function classifyManually(request: APIRequestContext, token: string, ticketId: string, data: Record<string, unknown>): Promise<void> {
+  const updatedAt = await readTicketUpdatedAt(request, token, ticketId)
+  const response = await apiRequest(request, 'POST', `/api/tickets/tickets/${ticketId}/classify`, {
+    token,
+    data: { ...data, source: 'manual' },
+    headers: updatedAt ? { [OPTIMISTIC_LOCK_HEADER]: updatedAt } : undefined,
+  })
+  expect(response.status(), `manual classify failed: ${await response.text()}`).toBe(200)
 }
 
 export async function readTriage(request: APIRequestContext, token: string, ticketId: string): Promise<TriageView | null> {

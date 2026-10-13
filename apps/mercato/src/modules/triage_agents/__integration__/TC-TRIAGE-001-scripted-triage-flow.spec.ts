@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   DEMO_IBAN,
+  classifyManually,
   cleanupFixtures,
   createPersona,
   disposeProposal,
@@ -14,6 +15,7 @@ import {
   sendEmail,
   settled,
   setupTriage,
+  startTriage,
   waitForTriage,
   type Fixtures,
 } from './helpers'
@@ -87,6 +89,12 @@ test.describe('TC-TRIAGE-001: AI ticket triage with the scripted provider', () =
         subject: 'Change of travel date',
         body: 'Hello,\n\nCan I change the date of my trip?\n\nThanks',
       })
+
+      if (!setup?.autoStart) {
+        for (const ticketId of [annaTicket, rejectedTicket, peterTicket, mariaTicket, emmaTicket, tomTicket, johnTicket]) {
+          await startTriage(request, token, ticketId)
+        }
+      }
 
       const annaTriage = await waitForTriage(request, token, annaTicket, settled)
       expect(annaTriage.stage, JSON.stringify(annaTriage)).toBe('awaiting_approval')
@@ -172,6 +180,35 @@ test.describe('TC-TRIAGE-001: AI ticket triage with the scripted provider', () =
         if (manualCase.queueKey) expect(ticket?.queueKey).toBe(manualCase.queueKey)
         if (manualCase.priority) expect(ticket?.priority).toBe(manualCase.priority)
       }
+
+      const johnFirst = await waitForTriage(request, token, johnTicket, (entry) => entry.stage === 'done' || entry.stage === 'failed')
+      await classifyManually(request, token, johnTicket, {
+        customerPersonId: john.personId,
+        reservationId: john.reservations[0].id,
+        reservationNumberSnapshot: john.reservations[0].bookingNumber,
+        categoryKey: 'booking',
+        subcategoryKey: 'booking.changes',
+        topicKey: 'booking.changes.date_change',
+        summary: 'The customer asks to change the travel date.',
+      })
+      await startTriage(request, token, johnTicket)
+      const johnRerun = await waitForTriage(
+        request,
+        token,
+        johnTicket,
+        (entry) => entry.attempt > johnFirst.attempt && (entry.stage === 'done' || entry.stage === 'failed'),
+      )
+      expect(johnRerun, JSON.stringify(johnRerun)).toMatchObject({ stage: 'done', aiMode: 'manual_review', reasonCode: 'topic_manual_only' })
+      expect(johnRerun.classification?.source).toBe('manual')
+      expect(johnRerun.identification?.reservation).toMatchObject({
+        match: 'explicit_number_verified',
+        bookingNumber: john.reservations[0].bookingNumber,
+      })
+      expect(await readTicket(request, token, johnTicket)).toMatchObject({
+        classificationSource: 'manual',
+        topicKey: 'booking.changes.date_change',
+        manualReviewReasonCode: 'topic_manual_only',
+      })
     } finally {
       await cleanupFixtures(request, token, fixtures)
     }

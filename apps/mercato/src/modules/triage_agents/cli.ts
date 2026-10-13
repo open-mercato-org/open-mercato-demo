@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetTriageDemo, resolveScenarios, sendScenario } from './lib/demo'
+import { resolveTriageAutoStart } from './lib/autoStart'
 import { ensureTriageProcess } from './lib/processSeed'
 import { rebuildTriageProjection } from './lib/rebuild'
 import { TRIAGE_SCENARIOS } from './lib/scenarios'
@@ -53,7 +54,7 @@ const setupProcess: ModuleCli = {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
     const result = await ensureTriageProcess(container, em, scope)
-    console.log(`Triage process ready: workflow ${result.workflowDefinitionId ?? '-'}, process ${result.processDefinitionId ?? '-'}${result.processCreated ? ' (created)' : ''}.`)
+    console.log(`Triage process ready: workflow ${result.workflowDefinitionId ?? '-'}, process ${result.processDefinitionId ?? '-'}${result.processCreated ? ' (created)' : ''}, auto-start ${result.autoStart ? 'on' : 'off'}.`)
   },
 }
 
@@ -74,6 +75,9 @@ const demoSend: ModuleCli = {
     for (const scenario of scenarios) {
       const ticket = await sendScenario(container, scope, scenario)
       console.log(`${scenario.key}: created ticket ${ticket.number} (${ticket.ticketId}) from ${scenario.persona}.`)
+    }
+    if (!resolveTriageAutoStart()) {
+      console.log('Triage auto-start is off (OM_TRIAGE_AUTO_START / integration run): start triage with "Re-run triage" on each ticket, then re-run setup-process after enabling it.')
     }
   },
 }

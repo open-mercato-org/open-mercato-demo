@@ -21,6 +21,7 @@ import {
   WORKFLOW_COMMAND_IDS,
   WORKFLOW_GRANTED_FEATURES,
 } from '../data/constants'
+import { resolveTriageAutoStart } from './autoStart'
 import type { TriageScope } from './kbArticles'
 
 const logger = createLogger('triage_agents').child({ component: 'processSeed' })
@@ -39,22 +40,30 @@ type WorkflowSeedFile = {
   enabled?: boolean
 }
 
-export const TRIAGE_PROCESS_TRIGGERS: ProcessTrigger[] = [
-  {
-    kind: 'event',
-    eventPattern: 'tickets.ticket.created',
-    config: {
-      filterConditions: [{ field: 'channel', operator: 'neq', value: 'api' }],
-      contextMapping: [
-        { targetKey: 'ticketId', sourceExpression: 'id' },
-        { targetKey: 'ticketNumber', sourceExpression: 'number' },
-      ],
+/**
+ * The event trigger is enabled only when triage auto-starts (see `resolveTriageAutoStart`);
+ * the manual trigger (re-run, explicit start) is always available.
+ */
+export function buildTriageProcessTriggers(autoStart: boolean): ProcessTrigger[] {
+  return [
+    {
+      kind: 'event',
+      eventPattern: 'tickets.ticket.created',
+      config: {
+        filterConditions: [{ field: 'channel', operator: 'neq', value: 'api' }],
+        contextMapping: [
+          { targetKey: 'ticketId', sourceExpression: 'id' },
+          { targetKey: 'ticketNumber', sourceExpression: 'number' },
+        ],
+      },
+      priority: 0,
+      enabled: autoStart,
     },
-    priority: 0,
-    enabled: true,
-  },
-  { kind: 'manual', requireFeatures: ['triage_agents.run'] },
-]
+    { kind: 'manual', requireFeatures: ['triage_agents.run'] },
+  ]
+}
+
+export const TRIAGE_PROCESS_TRIGGERS: ProcessTrigger[] = buildTriageProcessTriggers(true)
 
 export const TRIAGE_PROCESS_INPUT_SCHEMA = {
   type: 'object',
@@ -113,6 +122,7 @@ export type EnsureTriageProcessResult = {
   processDefinitionId: string | null
   processCreated: boolean
   enabledCommands: string[] | null
+  autoStart: boolean
 }
 
 /**
@@ -130,7 +140,7 @@ export async function ensureTriageProcess(
   const authoring = tryResolve<WorkflowDefinitionAuthoring>(container, 'workflowDefinitionAuthoring')
   if (!authoring) {
     logger.warn('workflowDefinitionAuthoring unavailable; skipping the triage process seed', scope)
-    return { workflowDefinitionId: null, processDefinitionId: null, processCreated: false, enabledCommands: null }
+    return { workflowDefinitionId: null, processDefinitionId: null, processCreated: false, enabledCommands: null, autoStart: false }
   }
   const seed = readTriageWorkflowSeed()
   const upsert = await authoring.upsertOwnedDefinition(em, {
@@ -157,9 +167,11 @@ export async function ensureTriageProcess(
     logger.warn('Could not enable the triage workflow commands', { ...scope, error: err instanceof Error ? err.message : String(err) })
     reportError(err, { module: 'triage_agents', code: 'triage_agents.enable_commands_failed' })
   }
+  const autoStart = resolveTriageAutoStart()
+  const triggers = buildTriageProcessTriggers(autoStart)
   const existing = await findTriageProcessDefinition(em, scope)
   if (existing) {
-    existing.triggers = TRIAGE_PROCESS_TRIGGERS
+    existing.triggers = triggers
     existing.inputSchema = TRIAGE_PROCESS_INPUT_SCHEMA
     existing.uiMetadata = { processKey: TRIAGE_PROCESS_KEY, ownerModule: TRIAGE_AGENTS_MODULE_ID }
     await em.flush()
@@ -168,6 +180,7 @@ export async function ensureTriageProcess(
       processDefinitionId: existing.id,
       processCreated: false,
       enabledCommands,
+      autoStart,
     }
   }
   const created = em.create(ProcessDefinition, {
@@ -177,7 +190,7 @@ export async function ensureTriageProcess(
     description: 'Triages every new helpdesk ticket with AI: identification, KB classification, deterministic priority and routing, and a consultant-approved resolution.',
     workflowId: TRIAGE_WORKFLOW_ID,
     inputSchema: TRIAGE_PROCESS_INPUT_SCHEMA,
-    triggers: TRIAGE_PROCESS_TRIGGERS,
+    triggers,
     milestones: [],
     uiMetadata: { processKey: TRIAGE_PROCESS_KEY, ownerModule: TRIAGE_AGENTS_MODULE_ID },
     enabled: true,
@@ -190,5 +203,6 @@ export async function ensureTriageProcess(
     processDefinitionId: created.id,
     processCreated: true,
     enabledCommands,
+    autoStart,
   }
 }

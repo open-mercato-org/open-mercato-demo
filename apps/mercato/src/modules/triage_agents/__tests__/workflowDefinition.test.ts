@@ -6,7 +6,8 @@ import { definitionToGraph, validateWorkflowGraph } from '@open-mercato/core/mod
 import { evaluateWorkflowDefinition } from '@open-mercato/core/modules/workflows/lib/definition-evaluation'
 import { invokeAgentConfigSchema } from '@open-mercato/core/modules/workflows/data/activity-config-schemas'
 import { processTriggersSchema } from '@open-mercato/enterprise/modules/agent_orchestrator/data/validators'
-import { TRIAGE_PROCESS_TRIGGERS } from '../lib/processSeed'
+import { TRIAGE_PROCESS_TRIGGERS, buildTriageProcessTriggers } from '../lib/processSeed'
+import { resolveTriageAutoStart } from '../lib/autoStart'
 import { COMPUTE_PRIORITY_FUNCTION, RECORD_STAGE_FUNCTION, ROUTE_FUNCTION, WORKFLOW_COMMAND_IDS } from '../data/constants'
 
 jest.mock('@open-mercato/telemetry', () => ({ reportError: jest.fn() }))
@@ -95,5 +96,19 @@ describe('ticket triage workflow definition', () => {
     const event = parsed.find((trigger) => trigger.kind === 'event')
     expect(event).toMatchObject({ eventPattern: 'tickets.ticket.created' })
     expect(parsed.some((trigger) => trigger.kind === 'manual')).toBe(true)
+  })
+
+  it('enables the ticket-created trigger only when triage auto-starts', () => {
+    const eventOf = (autoStart: boolean) => processTriggersSchema.parse(buildTriageProcessTriggers(autoStart)).find((trigger) => trigger.kind === 'event')
+    expect(eventOf(true)).toMatchObject({ enabled: true })
+    expect(eventOf(false)).toMatchObject({ enabled: false })
+    expect(buildTriageProcessTriggers(false).some((trigger) => trigger.kind === 'manual')).toBe(true)
+  })
+
+  it('auto-starts by default, not in integration runs, and honours OM_TRIAGE_AUTO_START', () => {
+    expect(resolveTriageAutoStart({})).toBe(true)
+    expect(resolveTriageAutoStart({ OM_INTEGRATION_TEST: 'true' })).toBe(false)
+    expect(resolveTriageAutoStart({ OM_INTEGRATION_TEST: 'true', OM_TRIAGE_AUTO_START: '1' })).toBe(true)
+    expect(resolveTriageAutoStart({ OM_TRIAGE_AUTO_START: 'false' })).toBe(false)
   })
 })
