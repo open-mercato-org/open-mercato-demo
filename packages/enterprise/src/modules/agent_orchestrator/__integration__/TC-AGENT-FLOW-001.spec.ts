@@ -264,7 +264,7 @@ test.describe('TC-AGENT-FLOW-001: process flow trace, re-run, embedded decision 
       await expect(card.getByText('Overpayment refund (v3)')).toBeVisible()
 
       await card.getByRole('button', { name: 'Edit' }).click()
-      const body = card.locator('textarea').first()
+      const body = card.locator('[data-field-key="body"]').getByRole('textbox')
       await body.fill(`Dear Ms Doe,\n${TEMPLATE_SENTENCE}`)
       await card.getByRole('button', { name: 'Save & approve' }).click()
       const dialog = page.getByRole('dialog')
@@ -282,10 +282,11 @@ test.describe('TC-AGENT-FLOW-001: process flow trace, re-run, embedded decision 
         )
         .toBe('edited')
       const stored = await apiRequest(request, 'GET', `/api/agent_orchestrator/proposals?id=${proposalId}`, { token: adminToken })
-      const row = (await readJsonSafe<{ items?: Array<{ payload?: ReturnType<typeof envelope>; selected_option_id?: string }> }>(stored))?.items?.[0]
+      const row = (await readJsonSafe<{ items?: Array<{ payload?: unknown; selected_option_id?: string }> }>(stored))?.items?.[0]
       expect(row?.selected_option_id).toBe('refund')
-      expect(row?.payload?.options[0].actions[0].payload).toEqual({ body: `Dear Ms Doe,\n${TEMPLATE_SENTENCE}`, channel: 'email' })
-      expect(row?.payload?.evidence?.citations?.[0]?.ref).toBe('payments.refunds.overpayment_refund@3')
+      const storedPayload = (typeof row?.payload === 'string' ? JSON.parse(row.payload) : row?.payload) as ReturnType<typeof envelope>
+      expect(storedPayload.options[0].actions[0].payload).toEqual({ body: `Dear Ms Doe,\n${TEMPLATE_SENTENCE}`, channel: 'email' })
+      expect(storedPayload.evidence.citations[0].ref).toBe('payments.refunds.overpayment_refund@3')
     } finally {
       await deleteAgentProposalsByIds(proposalId ? [proposalId] : []).catch(() => {})
       await deleteAgentRunsByIds(runId ? [runId] : []).catch(() => {})

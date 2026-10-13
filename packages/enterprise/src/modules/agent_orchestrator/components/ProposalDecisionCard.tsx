@@ -39,6 +39,7 @@ import {
   countChangedFields,
   highlightTemplateSegments,
   isEditableWidget,
+  isMultilineValue,
   maskValue,
   resolveFieldOverride,
   type DecisionFieldOverride,
@@ -228,8 +229,9 @@ export function ProposalDecisionCard({
   )
 
   const overrideFor = React.useCallback(
-    (actionType: string, field: string): DecisionFieldOverride | null =>
-      resolveFieldOverride(actionType, field, fieldOverrides, schemaLongText),
+    (actionType: string, field: EditableActionField): DecisionFieldOverride | null =>
+      resolveFieldOverride(actionType, field.key, fieldOverrides, schemaLongText) ??
+      (isMultilineValue(field) ? { widget: 'long_text' } : null),
     [fieldOverrides, schemaLongText],
   )
 
@@ -354,7 +356,7 @@ export function ProposalDecisionCard({
   const changedCount = mode === 'edit' && edits && originalEdits ? countChangedFields(originalEdits, edits) : 0
 
   const renderFieldValue = (edit: ActionEdit, field: EditableActionField, actionIndex: number) => {
-    const override = overrideFor(edit.type, field.key)
+    const override = overrideFor(edit.type, field)
     const revealKey = `${actionIndex}.${field.key}`
     if (override?.widget === 'masked') {
       const isRevealed = revealed.has(revealKey)
@@ -414,7 +416,7 @@ export function ProposalDecisionCard({
   }
 
   const renderFieldEditor = (edit: ActionEdit, field: EditableActionField, actionIndex: number, fieldIndex: number) => {
-    const override = overrideFor(edit.type, field.key)
+    const override = overrideFor(edit.type, field)
     if (!isEditableWidget(override, field)) return renderFieldValue(edit, field, actionIndex)
     const inputId = `ao-decision-${proposal.id}-${actionIndex}-${fieldIndex}`
     if (field.kind === 'boolean') {
@@ -541,7 +543,7 @@ export function ProposalDecisionCard({
                 ) : (
                   <dl className="space-y-3">
                     {edit.fields.map((field, fieldIndex) => {
-                      const override = overrideFor(edit.type, field.key)
+                      const override = overrideFor(edit.type, field)
                       const label = override?.labelKey ? t(override.labelKey) : humanizeKey(field.key)
                       return (
                         <div key={field.key} className="space-y-1" data-field-key={field.key}>

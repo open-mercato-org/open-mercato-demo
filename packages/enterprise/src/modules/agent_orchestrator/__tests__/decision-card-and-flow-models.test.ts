@@ -12,6 +12,7 @@ import {
   countChangedFields,
   highlightTemplateSegments,
   isEditableWidget,
+  isMultilineValue,
   maskValue,
   resolveFieldOverride,
 } from '../components/decisionCardModel'
@@ -189,6 +190,8 @@ describe('decision card fields', () => {
     expect(isEditableWidget(null, field)).toBe(true)
     expect(maskValue('PL61109010140000071219812874')).toBe('••••••••••••2874')
     expect(maskValue('abc')).toBe('•••')
+    expect(isMultilineValue({ key: 'body', kind: 'string', value: 'a\nb' })).toBe(true)
+    expect(isMultilineValue({ key: 'body', kind: 'string', value: 'ab' })).toBe(false)
   })
 
   it('derives editable fields for the selected option, preserving nested values and citations', () => {

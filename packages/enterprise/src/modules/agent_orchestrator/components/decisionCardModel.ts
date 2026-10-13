@@ -78,6 +78,11 @@ export function resolveFieldOverride(
   return null
 }
 
+/** A string that already spans lines gets the long-text editor even without an override, so no newline is lost. */
+export function isMultilineValue(field: EditableActionField): boolean {
+  return field.kind === 'string' && typeof field.value === 'string' && field.value.includes('\n')
+}
+
 /** A field the operator may change: masked and read-only fields pass through verbatim. */
 export function isEditableWidget(override: DecisionFieldOverride | null, field: EditableActionField): boolean {
   if (!override) return true
