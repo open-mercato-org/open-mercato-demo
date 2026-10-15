@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
@@ -25,6 +25,7 @@ import { useTicketDelete } from './useTicketDelete'
 import { useTicketAccess } from './detail/useTicketAccess'
 import { resolveCustomerLabel, resolveReservationLabel } from '../lib/linkedLabels'
 import { ticketDetailPath, type TicketQueueOption, type TicketRow } from './ticketTypes'
+import { parseQueueUrlState, serializeQueueUrlState, type TicketQueuePreset } from './queueUrlState'
 
 type TicketsResponse = {
   items: TicketRow[]
@@ -39,7 +40,21 @@ type QueueOptionsResponse = {
   items?: TicketQueueOption[]
 }
 
-export type TicketQueuePreset = 'all' | 'mine' | 'manualReview' | 'urgent'
+export type { TicketQueuePreset } from './queueUrlState'
+
+const HOST_FILTER_IDS = new Set(['status', 'priority', 'queueKey', 'needsManualReview'])
+const RESERVED_QUERY_PARAMS = new Set(['page', 'pageSize', 'sortField', 'sortDir', 'q', 'mine', 'id', 'ids'])
+
+function readForwardedFilterValue(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (value === true) return 'true'
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (Array.isArray(value)) {
+    const entries = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    return entries.length ? entries.map((entry) => entry.trim()).join(',') : null
+  }
+  return null
+}
 
 const PAGE_SIZE = 25
 
@@ -73,6 +88,11 @@ export function buildQueueQueryParams(input: {
   }
   if (typeof input.filters.queueKey === 'string' && input.filters.queueKey) params.queueKey = input.filters.queueKey
   if (input.filters.needsManualReview === true) params.needsManualReview = 'true'
+  for (const [id, value] of Object.entries(input.filters)) {
+    if (HOST_FILTER_IDS.has(id) || RESERVED_QUERY_PARAMS.has(id) || id in params) continue
+    const forwarded = readForwardedFilterValue(value)
+    if (forwarded) params[id] = forwarded
+  }
   return params
 }
 
@@ -80,14 +100,35 @@ export default function TicketsQueueTable() {
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const urlState = React.useMemo(() => parseQueueUrlState(searchParams), [searchParams])
+  const urlStateKey = React.useMemo(() => serializeQueueUrlState(urlState), [urlState])
   const [search, setSearch] = React.useState('')
-  const [preset, setPreset] = React.useState<TicketQueuePreset>('all')
-  const [filters, setFilters] = React.useState<FilterValues>({})
+  const [preset, setPreset] = React.useState<TicketQueuePreset>(urlState.preset)
+  const [filters, setFilters] = React.useState<FilterValues>(urlState.filters)
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const access = useTicketAccess()
+  const stateKey = React.useMemo(() => serializeQueueUrlState({ preset, filters }), [filters, preset])
+  const latestRef = React.useRef({ stateKey, urlStateKey, searchParams, pathname, router })
+  latestRef.current = { stateKey, urlStateKey, searchParams, pathname, router }
+
+  React.useEffect(() => {
+    if (urlStateKey === latestRef.current.stateKey) return
+    setPreset(urlState.preset)
+    setFilters(urlState.filters)
+    setPage(1)
+  }, [urlState, urlStateKey])
+
+  React.useEffect(() => {
+    const latest = latestRef.current
+    if (stateKey === latest.urlStateKey) return
+    const query = serializeQueueUrlState(parseQueueUrlState(new URLSearchParams(stateKey)), latest.searchParams)
+    latest.router.replace(query ? `${latest.pathname}?${query}` : latest.pathname, { scroll: false })
+  }, [stateKey])
   const { deleteTicket, ConfirmDialogElement } = useTicketDelete('tickets-queue-delete')
 
   const params = React.useMemo(
