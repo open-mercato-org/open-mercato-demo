@@ -15,6 +15,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
 import { parseQueueState, serializeQueueState } from '../hooks'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
@@ -69,6 +71,9 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const { payload: chromePayload } = useBackendChrome()
+  const canViewTrace = hasFeature(chromePayload?.grantedFeatures, 'agent_orchestrator.trace.view')
+  const canViewProcess = hasFeature(chromePayload?.grantedFeatures, 'agent_orchestrator.processes.view')
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     proposalId: string
@@ -237,7 +242,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold">{t('agent_orchestrator.proposal.title')}</h1>
           <div className="flex items-center gap-2">
-            {proposal.runId ? (
+            {proposal.runId && canViewTrace ? (
               <Button
                 type="button"
                 variant="outline"
@@ -247,7 +252,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                 {t('agent_orchestrator.proposal.openTrace')}
               </Button>
             ) : null}
-            {proposal.workflowInstanceId ? (
+            {proposal.workflowInstanceId && canViewProcess ? (
               <Button
                 type="button"
                 variant="outline"
@@ -272,7 +277,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         <ProposalCard
           proposal={proposal}
           agentLabel={agentLabel ?? undefined}
-          onInspect={() => setDrawerOpen(true)}
+          onInspect={canViewTrace ? () => setDrawerOpen(true) : undefined}
           selectedOptionId={selectedOptionId}
           onSelectOption={setSelectedOptionId}
           actions={{
