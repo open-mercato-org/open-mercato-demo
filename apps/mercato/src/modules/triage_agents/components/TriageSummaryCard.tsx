@@ -13,7 +13,7 @@ import { TriageStatusBadge } from './TriageStatusBadge'
 import { useTicketTriage } from './useTicketTriage'
 import { useTriageRerun } from './useTriageRerun'
 import { useGrantedFeatures } from './useFeatureGranted'
-import { pendingProposalId, TRIAGE_DECISION_CARD_ANCHOR, type TriageView } from './triageTypes'
+import { pendingProposalId, TICKET_DELETED_REASON_CODE, TRIAGE_DECISION_CARD_ANCHOR, type TriageView } from './triageTypes'
 
 type TicketLike = {
   summary?: unknown
@@ -141,6 +141,9 @@ function TriageDetails({ triage, ticket }: { triage: TriageView; ticket: TicketL
   const priority = triage.priority ?? readText(ticket?.priority)
   const priorityReason = triage.priorityReason ?? readText(ticket?.priorityReason)
   const summary = readText(ticket?.summary)
+  const reasonText = triage.stage === 'cancelled' && triage.reasonCode === TICKET_DELETED_REASON_CODE
+    ? t('triage_agents.card.ticketDeletedReason', 'The triage was cancelled because the ticket was deleted. Re-run the triage to analyse the restored ticket again.')
+    : triage.reason
   const matchLabel = (match: string | undefined) =>
     match ? t(`triage_agents.match.${match}`, match.replaceAll('_', ' ')) : t('triage_agents.match.not_found', 'not found')
 
@@ -182,9 +185,9 @@ function TriageDetails({ triage, ticket }: { triage: TriageView; ticket: TicketL
         <Row label={t('triage_agents.card.recommendedAction', 'Recommended action')} testId="triage-recommended-action">
           {triage.recommendedActionLabel ?? '—'}
         </Row>
-        {triage.reason ? (
+        {reasonText ? (
           <Row label={t('triage_agents.card.reason', 'Reason')} testId="triage-reason">
-            <span data-reason-code={triage.reasonCode ?? undefined}>{triage.reason}</span>
+            <span data-reason-code={triage.reasonCode ?? undefined}>{reasonText}</span>
           </Row>
         ) : null}
         <Row label={t('triage_agents.card.draft', 'Draft')} testId="triage-draft">

@@ -169,7 +169,7 @@ Returns `{ route: 'assisted' | 'manual', reasonCode?, reason?, targetQueueKey? }
 ### TicketTriage (`ticket_triages`): projection, rebuildable
 - `id`, `organization_id`, `tenant_id`, `created_at`, `updated_at`
 - `ticket_id` uuid (FK id, unique per org for the *current* triage); `process_execution_id` uuid; `workflow_instance_id` uuid
-- `stage` enum `queued | identifying | classifying | advising | awaiting_approval | applying | done | failed` (`advising` = the resolution advisor is running)
+- `stage` enum `queued | identifying | classifying | advising | awaiting_approval | applying | done | failed | cancelled` (`advising` = the resolution advisor is running; `cancelled` = the ticket was deleted, see Implementation Notes, deleted tickets)
 - `ai_mode` enum `assisted | manual_review` nullable ("AI status")
 - `reason_code`, `reason` text nullable ("Reason")
 - `identification` jsonb (match levels, candidates, evidence; no full PII: names/emails are referenced by id)
@@ -178,7 +178,7 @@ Returns `{ route: 'assisted' | 'manual', reasonCode?, reason?, targetQueueKey? }
 - `draft_state` enum `none | prepared | sent | rejected`
 - `run_ids` jsonb (`{ identifier, classifier, advisor }`); `attempt` int (re-runs)
 
-It is written only by the `triage_agents.record_stage` function (called between steps) and by subscribers on AO proposal/disposition events. It can be rebuilt from the process instance via `yarn mercato triage_agents rebuild-projection`.
+It is written only by the `triage_agents.record_stage` function (called between steps) and by subscribers on AO proposal/disposition events and on `tickets.ticket.deleted`. It can be rebuilt from the process instance via `yarn mercato triage_agents rebuild-projection`.
 
 ### Response enricher
 On `GET /api/tickets/tickets` (list + detail), add `_triage: { aiMode, stage, reason, recommendedActionLabel, draftState, confidence, proposalId, executionId }`. It is batched by ticket ids.
@@ -372,6 +372,22 @@ Not granted: `agent_orchestrator.trace.view|agents.*|processes.*|eval.*`, `triag
 
 **Tests.** Unit: `__tests__/awaitingDecision.test.ts` (query, narrowing incl. empty match, interceptor, deep link = tickets' `buildTicketQueueHref`, menu gating), `__tests__/awaitingDecisionWidgets.client.test.tsx` (preset count/toggle, nav badge publish/clear); tickets `__tests__/queueUrlState.test.ts`; AO `__tests__/caseload-detail-ai-links-gating.test.tsx`. Integration: `TC-TRIAGE-004` — as the consultant, the count ≥ 1 after a triage, the sidebar entry (href + count) opens the filtered queue with the ticket, the preset toggles the filter, the Caseload proposal page shows no trace/process/inspect buttons, approving drops the ticket from the filter and lowers the count. The consultant helpers moved to `__integration__/consultantHelpers.ts` (shared with `TC-TRIAGE-003`).
 
+## Implementation Notes (deleted tickets, 2026-10-15)
+
+**Bug.** Tickets became deletable (`tickets.ticket.delete`, soft delete, undoable, event `tickets.ticket.deleted`) but the projection was never told: the "Awaiting decision" count kept a deleted ticket (the filtered queue, which excludes deleted tickets, was empty), its AO proposal stayed pending in Caseload, and its parked workflow would later act on a deleted ticket.
+
+**On delete** (`subscribers/ticket-deleted.ts`, persistent, `runTriageSync`; `lib/ticketDeletion.ts` `cancelTriageForDeletedTicket`). The module reacts to the event only — no ORM import from `tickets`. The current attempt is closed projection-first, like the supersede re-run (`cancelCurrentAttempt` in `lib/projection.ts`): the attempt goes to `attempts` (pending proposal → `disposition: rejected`, `reasonCode: ticket_deleted`; in-flight attempt → `reasonCode: ticket_deleted`; settled attempt keeps its outcome), the row ends in the new terminal stage **`cancelled`** with `reasonCode: ticket_deleted`, `attempt+1` and no workflow instance, so late `record_stage` writes of the old workflow are recognised as stale (`superseded: true` → the `rejected` branch ends on `t_rejected_superseded` and does not flag the ticket). A still-pending proposal is then rejected through the AO `agent_orchestrator.proposals.dispose` command as the system (`userId: null`, reason `ticket_deleted`), so it leaves Caseload and its parked workflow resumes on the rejected branch. A 404/409 from dispose (proposal already settled/gone) keeps the cancellation; any other failure restores the attempt and rethrows (persistent retry). Idempotent: a missing or already `cancelled` row is left alone. `proposal.created` no longer moves a `cancelled` row back to `awaiting_approval`. Known limit: an attempt that was still running (identifying/classifying/advising) is not cancelled in AO; its later proposal is not projected (the row stays `cancelled`) but stays pending in Caseload.
+
+**`cancelled` stage.** `stage` is a text column (no migration). UI: status `cancelled` (neutral badge "Cancelled") in the summary card, queue column and AI-status filter; the summary card shows a translated reason for `ticket_deleted`. `findTicketIdsAwaitingDecision` only reads `awaiting_approval` rows, so a cancelled triage is never counted. Golden evals read workflow instances, not the stage — unaffected.
+
+**On undo of the delete.** The undo restores the ticket and emits `tickets.ticket.created` (`emitTicketUndoCrud(ctx, 'created', …)`). No dedicated restore subscriber: when triage auto-starts, the process' `tickets.ticket.created` event trigger starts a fresh execution, which adopts the `cancelled` row (no workflow instance on it); otherwise the restored ticket shows the cancelled triage with the "Re-run triage" button, and the re-run starts a new attempt normally (nothing pending, so no supersede prompt). Chosen over resetting the row so the closed attempt stays in the history.
+
+**Defense in depth.** `GET /api/triage_agents/awaiting-decision` passes a ticket presence reader (`lib/ticketPresence.ts`, `resolveTicketPresenceReader`): the query engine on `tickets:ticket` (soft-deleted rows excluded by default, entity id only — the sanctioned path also used by `humanClassification`), soft-optional (`null` → keep every id). Rows from before this subscriber, or events not processed yet, are therefore not counted. The tickets-list interceptor needs no check (the list itself excludes deleted tickets).
+
+**Repairing existing rows.** `rebuild-projection` (`--tenant <id> --org <id> [--ticket <id>]`) replays the workflow instances, then cancels the rebuilt rows of tickets the presence reader no longer finds, rejecting their pending proposals the same way. Output: `Rebuilt N … cancelled M for deleted ticket(s).`
+
+**Tests.** Unit `__tests__/ticketDeleted.test.ts` (pending → dispose `rejected`/`ticket_deleted` with `userId: null` + projection `cancelled`; idempotent second delivery; settled and in-flight attempts; never-triaged ticket; 409 keeps the cancellation; other dispose failure restores; the old workflow's `record_stage` is ignored; a re-run adopts the cancelled row; rebuild cancels deleted tickets), `__tests__/awaitingDecision.test.ts` (only `awaiting_approval` rows read; presence filter; unavailable presence keeps ids). Integration `TC-TRIAGE-005`: triage → delete via API → projection `cancelled`/`ticket_deleted`, count drops, proposal `rejected` with reason `ticket_deleted`; undo through the audit-log undo token → re-run → `awaiting_approval` with a new proposal.
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — KB grounding section (citations, guardrail, draft segments, demo proof); English output; external-node stub removed.
@@ -383,3 +399,4 @@ Not granted: `agent_orchestrator.trace.view|agents.*|processes.*|eval.*`, `triag
 - **2026-10-15** — `support_consultant` role (per-module `defaultRoleFeatures`, seeded by `seedDefaults`), feature-gated summary-card links, role sidebar preference hiding Caseload/Overview/Audit, `demo:consultant` CLI, TC-TRIAGE-003.
 - **2026-10-15** — OpenAI strict structured outputs: advisor `segments[].ref` required-nullable, `topicVersion` required, strict-schema test on the AI SDK JSON schema; AO evidence envelope accepts `null` optional keys. KB reads: `requireKbArticleRead` loop guard (`defineAgent` `loop.prepareStep`), numbered prompt procedures, non-blocking missing facts, fail-closed `kb_not_consulted` routing on proposals whose run did not fetch the cited article.
 - **2026-10-15** — Consultant decision inbox: "Awaiting decision" count API, tickets list interceptor + server filter, queue preset, Helpdesk sidebar entry with live badge, TC-TRIAGE-004.
+- **2026-10-15** — Deleted tickets: `ticket-deleted` subscriber cancels the triage (new `cancelled` stage, `ticket_deleted` reason, pending proposal rejected through AO dispose, stale writes of the old workflow ignored), presence-checked awaiting-decision count, `rebuild-projection` repairs rows of already deleted tickets, undo/re-run path documented, TC-TRIAGE-005.

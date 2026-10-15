@@ -108,7 +108,7 @@ export async function syncProposalCreated(
   const proposalId = readString(payload.id)
   if (!proposalId) return null
   const triage = await locateTriage(em, scope, readString(payload.workflowInstanceId), payload.subject)
-  if (!triage) return null
+  if (!triage || triage.stage === 'cancelled') return null
   const proposal = await findOneWithDecryption(
     em,
     AgentProposal,

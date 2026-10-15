@@ -41,6 +41,7 @@ export const TRIAGE_STAGES = [
   'applying',
   'done',
   'failed',
+  'cancelled',
 ] as const
 
 export type TriageStage = (typeof TRIAGE_STAGES)[number]

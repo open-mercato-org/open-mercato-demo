@@ -64,6 +64,32 @@ describe('findTicketIdsAwaitingDecision', () => {
     expect(proposalWhere).toMatchObject({ ...SCOPE, disposition: 'pending', deletedAt: null, id: { $in: ['p1', 'p2'] } })
   })
 
+  it('never counts a cancelled triage: only awaiting_approval rows are read', async () => {
+    mockTriagesAndProposals([], [])
+    await findTicketIdsAwaitingDecision({} as EntityManager, SCOPE)
+    const [, , triageWhere] = findWithDecryptionMock.mock.calls[0]
+    expect(triageWhere.stage).toBe('awaiting_approval')
+  })
+
+  it('drops tickets that are already deleted when a presence reader is given', async () => {
+    mockTriagesAndProposals(
+      [
+        { ticketId: T1, proposalId: 'p1' },
+        { ticketId: T2, proposalId: 'p2' },
+      ],
+      ['p1', 'p2'],
+    )
+    const ticketPresence = jest.fn(async () => new Set([T2]))
+    expect(await findTicketIdsAwaitingDecision({} as EntityManager, SCOPE, { ticketPresence })).toEqual([T2])
+    expect(ticketPresence).toHaveBeenCalledWith(SCOPE, [T1, T2])
+  })
+
+  it('keeps every id when the presence check is unavailable', async () => {
+    mockTriagesAndProposals([{ ticketId: T1, proposalId: 'p1' }], ['p1'])
+    const ticketPresence = jest.fn(async () => null)
+    expect(await findTicketIdsAwaitingDecision({} as EntityManager, SCOPE, { ticketPresence })).toEqual([T1])
+  })
+
   it('skips the proposal lookup when no triage awaits approval', async () => {
     mockTriagesAndProposals([], [])
     expect(await findTicketIdsAwaitingDecision({} as EntityManager, SCOPE)).toEqual([])

@@ -6,6 +6,8 @@ import { TicketTriage } from '../data/entities'
 import type { RecordStageArgs } from '../data/validators'
 import type { TriageScope } from './kbArticles'
 import { isRecord, recordTriageStage } from './projection'
+import { cancelTriageForDeletedTicket, type ProposalRejecter } from './ticketDeletion'
+import type { TicketPresenceReader } from './ticketPresence'
 
 type Loose = Record<string, unknown>
 
@@ -74,11 +76,22 @@ export function deriveStageArgs(context: Loose, status: string, currentStepId: s
   return { ...base, stage: 'failed', aiMode: 'manual_review', reasonCode: 'ai_failed' }
 }
 
+export type RebuildTriageProjectionOptions = {
+  ticketId?: string | null
+  ticketPresence?: TicketPresenceReader | null
+  rejectProposal?: ProposalRejecter | null
+}
+
+/**
+ * Replays every triage workflow instance into a fresh projection. With `ticketPresence`
+ * the rows of tickets deleted meanwhile are then cancelled the way the ticket-deleted
+ * subscriber does (rejecting a still-pending proposal through `rejectProposal`).
+ */
 export async function rebuildTriageProjection(
   em: EntityManager,
   scope: TriageScope,
-  options: { ticketId?: string | null } = {},
-): Promise<{ instances: number; rebuilt: number }> {
+  options: RebuildTriageProjectionOptions = {},
+): Promise<{ instances: number; rebuilt: number; cancelled: number }> {
   const instances = await findWithDecryption(
     em,
     WorkflowInstance,
@@ -92,13 +105,24 @@ export async function rebuildTriageProjection(
     ...(options.ticketId ? { ticketId: options.ticketId } : {}),
   })
   let rebuilt = 0
+  const ticketIds = new Set<string>()
   for (const instance of instances) {
     const context = isRecord(instance.context) ? instance.context : {}
     if (options.ticketId && context.ticketId !== options.ticketId) continue
     const args = deriveStageArgs(context, instance.status, instance.currentStepId ?? null)
     if (!args) continue
     await recordTriageStage(em, scope, args, instance.id)
+    ticketIds.add(args.ticketId)
     rebuilt += 1
   }
-  return { instances: instances.length, rebuilt }
+  let cancelled = 0
+  const present = options.ticketPresence && ticketIds.size > 0 ? await options.ticketPresence(scope, Array.from(ticketIds)) : null
+  if (present) {
+    for (const ticketId of ticketIds) {
+      if (present.has(ticketId)) continue
+      const triage = await cancelTriageForDeletedTicket(em, scope, ticketId, options.rejectProposal ?? null)
+      if (triage) cancelled += 1
+    }
+  }
+  return { instances: instances.length, rebuilt, cancelled }
 }

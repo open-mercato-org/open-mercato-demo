@@ -4,6 +4,7 @@ import { AgentProposal } from '@open-mercato/enterprise/modules/agent_orchestrat
 import { AWAITING_DECISION_FILTER_ID, AWAITING_DECISION_FILTER_VALUE, AWAITING_DECISION_MAX_TICKETS } from '../data/constants'
 import { TicketTriage } from '../data/entities'
 import type { TriageScope } from './kbArticles'
+import type { TicketPresenceReader } from './ticketPresence'
 
 const NO_MATCH_TICKET_ID = '00000000-0000-4000-8000-000000000000'
 
@@ -12,8 +13,15 @@ const NO_MATCH_TICKET_ID = '00000000-0000-4000-8000-000000000000'
  * `awaiting_approval` with no recorded disposition, and the AO proposal it points at is
  * still `pending`. Deliberately not narrowed to the review task's `assignedToRoles` —
  * whoever holds `agent_orchestrator.proposals.dispose` may decide (spec: consultant inbox).
+ * A cancelled triage (deleted ticket) is never `awaiting_approval`; with `ticketPresence`
+ * the result also drops tickets that are already deleted but whose projection was not
+ * cancelled yet (event not processed, rows from before the ticket-deleted subscriber).
  */
-export async function findTicketIdsAwaitingDecision(em: EntityManager, scope: TriageScope): Promise<string[]> {
+export async function findTicketIdsAwaitingDecision(
+  em: EntityManager,
+  scope: TriageScope,
+  options: { ticketPresence?: TicketPresenceReader | null } = {},
+): Promise<string[]> {
   const triages = await findWithDecryption(
     em,
     TicketTriage,
@@ -45,9 +53,12 @@ export async function findTicketIdsAwaitingDecision(em: EntityManager, scope: Tr
     scope,
   )
   const pendingIds = new Set(pending.map((proposal) => proposal.id))
-  return triages
+  const ticketIds = triages
     .filter((triage) => typeof triage.proposalId === 'string' && pendingIds.has(triage.proposalId))
     .map((triage) => triage.ticketId)
+  if (ticketIds.length === 0 || !options.ticketPresence) return ticketIds
+  const present = await options.ticketPresence(scope, ticketIds)
+  return present ? ticketIds.filter((ticketId) => present.has(ticketId)) : ticketIds
 }
 
 function readQueryString(value: unknown): string | null {

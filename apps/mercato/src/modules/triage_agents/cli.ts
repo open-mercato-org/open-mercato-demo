@@ -12,6 +12,8 @@ import { resolveTriageAutoStart } from './lib/autoStart'
 import { seedTriageGoldenEvals } from './lib/goldenEvals'
 import { ensureTriageProcess } from './lib/processSeed'
 import { rebuildTriageProjection } from './lib/rebuild'
+import { createProposalRejecter } from './lib/ticketDeletion'
+import { resolveTicketPresenceReader } from './lib/ticketPresence'
 import { TRIAGE_SCENARIOS } from './lib/scenarios'
 
 type ParsedArgs = { positional: string[]; flags: Record<string, string> }
@@ -111,8 +113,14 @@ const rebuildProjection: ModuleCli = {
     if (!scope) return
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const result = await rebuildTriageProjection(em, scope, { ticketId: flags.ticket ?? null })
-    console.log(`Rebuilt ${result.rebuilt} triage projection entr(ies) from ${result.instances} workflow instance(s).`)
+    const result = await rebuildTriageProjection(em, scope, {
+      ticketId: flags.ticket ?? null,
+      ticketPresence: resolveTicketPresenceReader(container),
+      rejectProposal: createProposalRejecter(container, scope),
+    })
+    console.log(
+      `Rebuilt ${result.rebuilt} triage projection entr(ies) from ${result.instances} workflow instance(s); cancelled ${result.cancelled} for deleted ticket(s).`,
+    )
   },
 }
 

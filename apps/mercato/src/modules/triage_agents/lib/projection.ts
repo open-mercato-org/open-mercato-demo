@@ -263,6 +263,28 @@ export function supersedeCurrentAttempt(row: TicketTriage): void {
   row.stage = 'queued'
 }
 
+export const TICKET_DELETED_REASON_CODE = 'ticket_deleted'
+
+const SETTLED_STAGES = new Set<TriageStage>(['done', 'failed', 'cancelled'])
+
+/**
+ * Closes the current attempt because its ticket was deleted: the attempt moves to the
+ * history (a pending proposal is recorded as rejected with `ticket_deleted`, an in-flight
+ * attempt with `ticket_deleted`, a settled one keeps its outcome) and the row ends in
+ * `cancelled`, so late writes of the old workflow are recognised as stale and nothing
+ * counts the ticket as awaiting a decision.
+ */
+export function cancelCurrentAttempt(row: TicketTriage, proposalPending: boolean): void {
+  const closing: Partial<TriageAttemptRecord> = proposalPending
+    ? { disposition: 'rejected', reasonCode: TICKET_DELETED_REASON_CODE }
+    : SETTLED_STAGES.has(row.stage)
+      ? {}
+      : { reasonCode: TICKET_DELETED_REASON_CODE }
+  resetForNewAttempt(row, null, closing)
+  row.stage = 'cancelled'
+  row.reasonCode = TICKET_DELETED_REASON_CODE
+}
+
 const ATTEMPT_STATE_KEYS = [
   'attempts', 'attempt', 'workflowInstanceId', 'processExecutionId', 'stage', 'aiMode', 'reasonCode', 'reason', 'route',
   'priority', 'priorityReason', 'identification', 'classification', 'uncertainty', 'confidence', 'recommendedActionLabel',

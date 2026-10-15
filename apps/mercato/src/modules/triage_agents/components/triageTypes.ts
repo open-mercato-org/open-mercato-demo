@@ -40,6 +40,8 @@ export type TriageClassificationView = {
 
 export const TRIAGE_DECISION_CARD_ANCHOR = 'triage-decision-card'
 
+export const TICKET_DELETED_REASON_CODE = 'ticket_deleted'
+
 export type TriageAttemptView = {
   attempt: number
   executionId: string | null
@@ -76,13 +78,14 @@ export type TriageView = {
   updatedAt: string
 }
 
-export type TriageStatus = 'analyzing' | 'advising' | 'awaiting_approval' | 'applying' | 'assisted' | 'manual_review' | 'failed'
+export type TriageStatus = 'analyzing' | 'advising' | 'awaiting_approval' | 'applying' | 'assisted' | 'manual_review' | 'failed' | 'cancelled'
 
 const ANALYZING_STAGES = new Set(['queued', 'identifying', 'classifying'])
 
 export function resolveTriageStatus(triage: Pick<TriageView, 'stage' | 'aiMode'> | null | undefined): TriageStatus | null {
   if (!triage) return null
   if (triage.stage === 'failed') return 'failed'
+  if (triage.stage === 'cancelled') return 'cancelled'
   if (triage.stage === 'advising') return 'advising'
   if (triage.stage === 'awaiting_approval') return 'awaiting_approval'
   if (triage.stage === 'applying') return 'applying'
@@ -98,6 +101,7 @@ export const TRIAGE_STATUS_VARIANTS: Record<TriageStatus, StatusBadgeVariant> = 
   assisted: 'info',
   manual_review: 'warning',
   failed: 'error',
+  cancelled: 'neutral',
 }
 
 export const TRIAGE_STATUS_LABEL_KEYS: Record<TriageStatus, { key: string; fallback: string }> = {
@@ -108,6 +112,7 @@ export const TRIAGE_STATUS_LABEL_KEYS: Record<TriageStatus, { key: string; fallb
   assisted: { key: 'triage_agents.status.assisted', fallback: 'Assisted' },
   manual_review: { key: 'triage_agents.status.manualReview', fallback: 'Manual review' },
   failed: { key: 'triage_agents.status.failed', fallback: 'AI failed' },
+  cancelled: { key: 'triage_agents.status.cancelled', fallback: 'Cancelled' },
 }
 
 export function isTriageView(value: unknown): value is TriageView {
