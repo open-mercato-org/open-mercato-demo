@@ -1,6 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { reanchorDemoReservationDates, seedReservationsDemo } from './lib/seeds'
+import { reanchorDemoReservationDates, resetDemoRefunds, seedReservationsDemo } from './lib/seeds'
 
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
@@ -52,6 +52,19 @@ const seedDemo: ModuleCli = {
   },
 }
 
-const commands: ModuleCli[] = [reanchorDates, seedDemo]
+const resetRefunds: ModuleCli = {
+  command: 'demo:reset-refunds',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const container = await createRequestContainer()
+    const result = await resetDemoRefunds(container, {
+      tenantId: args.tenant ?? args.tenantId ?? null,
+      organizationId: args.org ?? args.organizationId ?? null,
+    })
+    console.log(`Rejected ${result.rejected} open demo refund(s); demo balances are back to their seeded state.`)
+  },
+}
+
+const commands: ModuleCli[] = [reanchorDates, seedDemo, resetRefunds]
 
 export default commands

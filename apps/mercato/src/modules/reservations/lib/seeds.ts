@@ -3,7 +3,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Reservation } from '../data/entities'
+import { Reservation, ReservationRefund } from '../data/entities'
 import type { PaymentMethod, PaymentStatus, ReservationStatus } from '../data/constants'
 import { findCustomerPersonByEmail } from './customerLookup'
 import { addDaysToDateOnly, resolveReservationsTimeZone, todayInTimeZone, toDateOnlyString } from './dates'
@@ -381,4 +381,50 @@ export async function reanchorDemoReservationDates(
     updated += 1
   }
   return { updated, unchanged }
+}
+
+const DEMO_RESET_REFUND_STATUSES = ['requested', 'approved'] as const
+
+export async function resetDemoRefunds(
+  container: AwilixContainer,
+  options: { tenantId?: string | null; organizationId?: string | null; reason?: string } = {},
+): Promise<{ rejected: number }> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  const commandBus = container.resolve('commandBus') as CommandBus
+  const reservationWhere: Record<string, unknown> = {
+    bookingNumber: { $in: DEMO_RESERVATIONS.map((seed) => seed.bookingNumber) },
+    deletedAt: null,
+  }
+  if (options.tenantId) reservationWhere.tenantId = options.tenantId
+  if (options.organizationId) reservationWhere.organizationId = options.organizationId
+  const decryptionScope = options.tenantId ? { tenantId: options.tenantId, organizationId: options.organizationId ?? null } : undefined
+  const reservations = await findWithDecryption(em, Reservation, reservationWhere as FilterQuery<Reservation>, {}, decryptionScope)
+  if (reservations.length === 0) return { rejected: 0 }
+  const refunds = await findWithDecryption(
+    em,
+    ReservationRefund,
+    {
+      reservationId: { $in: reservations.map((reservation) => reservation.id) },
+      status: { $in: [...DEMO_RESET_REFUND_STATUSES] },
+      deletedAt: null,
+    } as FilterQuery<ReservationRefund>,
+    {},
+    decryptionScope,
+  )
+  let rejected = 0
+  for (const refund of refunds) {
+    const scope = { tenantId: refund.tenantId, organizationId: refund.organizationId }
+    await commandBus.execute('reservations.refund.transition', {
+      input: {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        id: refund.id,
+        to: 'rejected',
+        reason: options.reason ?? 'Demo reset',
+      },
+      ctx: buildSeedCommandContext(container, scope),
+    })
+    rejected += 1
+  }
+  return { rejected }
 }
