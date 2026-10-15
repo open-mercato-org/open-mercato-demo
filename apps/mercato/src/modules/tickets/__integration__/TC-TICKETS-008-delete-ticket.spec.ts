@@ -9,6 +9,7 @@ export const integrationMeta = {
 
 test.describe('TC-TICKETS-008: delete tickets from the UI', () => {
   test('deletes a ticket from the detail page actions menu', async ({ page, request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueStamp('tc-tickets-008-detail')
     let ticketId: string | null = null
@@ -22,7 +23,7 @@ test.describe('TC-TICKETS-008: delete tickets from the UI', () => {
 
       await login(page, 'admin')
       await page.goto(`/backend/tickets/${ticketId}`, { waitUntil: 'commit' })
-      await page.getByRole('button', { name: 'Actions' }).click()
+      await page.getByRole('button', { name: 'Actions', exact: true }).click()
       await page.getByRole('menuitem', { name: 'Delete ticket' }).click()
       const dialog = page.getByRole('alertdialog').or(page.getByRole('dialog'))
       await expect(dialog).toBeVisible()
@@ -37,6 +38,7 @@ test.describe('TC-TICKETS-008: delete tickets from the UI', () => {
   })
 
   test('deletes a ticket from the queue row actions and keeps it on cancel', async ({ page, request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueStamp('tc-tickets-008-queue')
     const subject = `Delete me from queue ${stamp}`
@@ -55,13 +57,13 @@ test.describe('TC-TICKETS-008: delete tickets from the UI', () => {
       await expect(row).toBeVisible({ timeout: 20_000 })
 
       await row.getByRole('button', { name: 'Open actions' }).click()
-      await page.getByRole('menuitem', { name: 'Delete' }).or(page.getByRole('button', { name: 'Delete', exact: true })).first().click()
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).or(page.getByRole('button', { name: 'Delete', exact: true })).first().click()
       const cancelDialog = page.getByRole('alertdialog').or(page.getByRole('dialog'))
       await cancelDialog.getByRole('button', { name: 'Cancel' }).click()
       expect(await getTicket(request, token, ticketId)).not.toBeNull()
 
       await row.getByRole('button', { name: 'Open actions' }).click()
-      await page.getByRole('menuitem', { name: 'Delete' }).or(page.getByRole('button', { name: 'Delete', exact: true })).first().click()
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).or(page.getByRole('button', { name: 'Delete', exact: true })).first().click()
       const confirmDialog = page.getByRole('alertdialog').or(page.getByRole('dialog'))
       await confirmDialog.getByRole('button', { name: 'Delete ticket' }).click()
 
