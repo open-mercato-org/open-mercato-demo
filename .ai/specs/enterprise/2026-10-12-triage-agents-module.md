@@ -186,10 +186,10 @@ On `GET /api/tickets/tickets` (list + detail), add `_triage: { aiMode, stage, re
 ## API Contracts (module-own, thin)
 - `POST /api/triage_agents/tickets/:ticketId/rerun { supersede? }` → starts the process via its manual trigger (`attempt+1`). Feature `triage_agents.run`; `supersede: true` with a pending proposal also needs `agent_orchestrator.proposals.dispose` (see Implementation Notes — decision card + flow tab).
 - `GET /api/triage_agents/scenarios` → scenario presets for the simulate dialog (the six umbrella emails). Feature `tickets.intake.simulate`.
-- CLI: `yarn mercato triage_agents demo:reset` (re-anchors reservation dates, closes the demo tickets, clears projections), `demo:send <scenario|all>`, `rebuild-projection`, `seed-evals` (golden eval cases).
+- CLI: `yarn mercato triage_agents demo:reset` (re-anchors reservation dates, closes the demo tickets, clears projections), `demo:send <scenario|all>`, `rebuild-projection`, `seed-evals` (golden eval cases), `demo:consultant` (the support-consultant demo user — see Implementation Notes, support consultant role).
 
 ## ACL
-`triage_agents.view` (see AI cards; employee), `triage_agents.run` (re-run triage; employee), plus AO's `agent_orchestrator.proposals.dispose` and `trace.view` granted to the employee role in `setup.ts` (`defaultRoleFeatures`).
+`triage_agents.view` (see AI cards; employee), `triage_agents.run` (re-run triage; employee), plus AO's `agent_orchestrator.proposals.dispose` and `trace.view` granted to the employee role in `setup.ts` (`defaultRoleFeatures`). The `support_consultant` role gets only `triage_agents.view` + `proposals.view|dispose` (see Implementation Notes, support consultant role).
 
 ## UI (widgets in `widgets/injection/`)
 
@@ -318,6 +318,27 @@ Module id plural ✅ · no business data / FK ids only ✅ · writes only via wo
 
 **Tests.** Unit: `__tests__/decisionFlowModel.test.ts` (resolver parse/map/cache, field overrides, widget context, attempts), `__tests__/rerunSupersede.test.ts` (409 / 403 / supersede order and link / restore on dispose failure / stale record_stage / attempt views), `__tests__/triageDecisionWidgets.client.test.tsx` (jsdom: card visibility and overrides, flow tab props), `workflowDefinition.test.ts` (rejected branch), `scriptedFixtures.test.ts` (v4 advisor: finance check, `@4` citation, grounding verified). Integration: `TC-TRIAGE-002` — decision card on the ticket page with the resolved KB title link and step texts, flow tab agent-run + tool-call nodes, KB edit (publish via API) → flow-tab re-run with the supersede confirmation → second attempt (old proposal rejected, ticket not flagged, `finance_review` check, `@<new version>` citation) in the attempt selector and compare → edited approval via the card → refund `requested` 350 EUR + outbound reply with the finance sentence → disposition + effector nodes. The spec restores the article content (publishing one more version) in `finally`.
 
+## Implementation Notes (support consultant role, 2026-10-15)
+
+**Role.** `support_consultant` is a custom staff role for a helpdesk employee who decides on AI proposals but never sees AI internals. Each owning module declares its share in `setup.ts` `defaultRoleFeatures` (additive; no existing feature id or page gate changed):
+
+| Module | Features |
+|---|---|
+| `tickets` | `tickets.view`, `tickets.manage`, `tickets.classify`, `tickets.reply` (not `tickets.intake.simulate`) |
+| `reservations` | `reservations.view` |
+| `knowledge_articles` | `knowledge_articles.view` |
+| `triage_agents` (demo glue, `SUPPORT_CONSULTANT_FEATURES` in `data/constants.ts`) | `triage_agents.view`, `agent_orchestrator.proposals.view`, `agent_orchestrator.proposals.dispose`, `customers.people.view`, `customers.companies.view` |
+
+Not granted: `agent_orchestrator.trace.view|agents.*|processes.*|eval.*`, `triage_agents.run|manage`. `triage_agents` `seedDefaults` creates the role per tenant (`ensureRoles`, the WMS pattern) so `ensureCustomRoleAcls` applies the ACL on new tenants; existing tenants get it from `demo:consultant` (below) or `auth sync-role-acls` once the role exists.
+
+**Summary card gating.** `TriageSummaryCard` checks `agent_orchestrator.trace.view` (Open in Caseload), `agent_orchestrator.processes.view` (Open flow) and `triage_agents.run` (Re-run triage) in one `/api/auth/feature-check` round trip (`useGrantedFeatures`); each link renders only when its feature is granted. The flow tab keeps its `trace.view` widget gate; the decision card widget needs only `triage_agents.view` + `proposals.view`. The decision card keeps its facts through the AO `decision_context` block (AO delta spec §A, as implemented).
+
+**Navigation.** `proposals.view` also unlocks the AO Caseload, Overview and Audit pages (group "Agents"). Their gates stay as they are; the role gets a role sidebar preference (`role_sidebar_preferences`, seeded by `seedSupportConsultantRole`) whose `hiddenItems` are `/backend/caseload`, `/backend/overview`, `/backend/audit` (item keys are hrefs), merged into any existing preference. Those three pages remain reachable by typing the URL — the consultant then sees the proposal queue and decision UI they can already use from the ticket, never traces, runs or flows. Agents, Playground, Processes and Traces are refused (Access Denied) by their own feature gates.
+
+**CLI.** `yarn mercato triage_agents demo:consultant --tenant <id> --org <id> [--email <email>] [--password <pw>]` (`lib/demoConsultant.ts`): ensures the role + sidebar preference, applies the declared ACL (`ensureCustomRoleAcls`, the `sync-role-acls` logic), then creates or updates the user through the auth module's `auth.users.create|update` commands (system actor; bcrypt hashing, audit and events stay auth's) with exactly the `support_consultant` role, and invalidates the tenant RBAC cache. An existing user holding any other role is refused (never demoted). Default email `consultant@acme.example`. Without `--password` a policy-compliant password is generated and written with `{ email, password, createdAt }` to `apps/mercato/.mercato/demo-consultant.json` (mode 600, `.mercato` is gitignored); only the path and email are printed.
+
+**Tests.** Unit: `__tests__/triageSummaryCardGating.client.test.tsx` (each link only with its feature, one feature-check call), `__tests__/demoConsultant.test.ts` (grants exclude AI-internal features, sidebar merge/no-op, create/update/refuse paths, generated password policy). Integration: `TC-TRIAGE-003` — the seeded role's ACL, a consultant user via API fixture, `runs`/`agents`/`executions/:id/flow` 403 and re-run 403, `proposals?id=` 200 with `decision_context` facts, ticket page with summary + decision card (facts grid, KB citations) and no Caseload/Open flow/Re-run links or flow tab, no Agents sidebar entries, approve → done, no simulate/scenario buttons on the queue, AI admin pages Access Denied.
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — KB grounding section (citations, guardrail, draft segments, demo proof); English output; external-node stub removed.
@@ -326,3 +347,4 @@ Module id plural ✅ · no business data / FK ids only ✅ · writes only via wo
 - **2026-10-13** — Implemented Phase 4 (agents, functions, workflow + process seed, projection, grounding fallback, widgets, API, CLI, scripted fixtures, tests); recorded engine facts and spec corrections (subject keys, review priority enum, transition-placed functions, execution grant, command enablement, grounding fallback).
 - **2026-10-13** — Hardening: KB reads via the `knowledgeArticleVersionReader` DI service, `advising` stage, golden eval cases + `seed-evals` CLI, `OM_TRIAGE_AUTO_START` flake guard (triage spec opts in via the manual trigger), manual classification kept on re-run.
 - **2026-10-13** — Decision card + flow tab widgets, KB citation resolver, re-run with supersede (projection-first close, AO dispose, `rerunOfExecutionId`), stale-write guard + split `rejected` branch so a superseded proposal does not flag the ticket, `attempts` on the triage API, v4 (finance review) advisor fixture, TC-TRIAGE-002.
+- **2026-10-15** — `support_consultant` role (per-module `defaultRoleFeatures`, seeded by `seedDefaults`), feature-gated summary-card links, role sidebar preference hiding Caseload/Overview/Audit, `demo:consultant` CLI, TC-TRIAGE-003.

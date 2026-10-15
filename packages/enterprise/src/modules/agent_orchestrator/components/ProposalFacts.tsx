@@ -45,7 +45,7 @@ export function FactsGrid({
       : deriveFactsFromInput(sources.input, locale)
   if (rows.length === 0) return null
   return (
-    <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', className)}>
+    <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', className)} data-testid="ao-proposal-facts">
       {rows.map((fact) => (
         <div key={fact.label}>
           <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground" title={fact.label}>
