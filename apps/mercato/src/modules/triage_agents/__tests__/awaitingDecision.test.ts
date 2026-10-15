@@ -85,9 +85,8 @@ describe('query narrowing', () => {
 
   it('matches nothing (never everything) when no ticket awaits a decision', () => {
     const query = narrowQueryToTicketIds({ [AWAITING_DECISION_FILTER_ID]: 'awaiting' }, [])
-    expect(typeof query.ids).toBe('string')
-    expect(query.ids).not.toBe('')
-    expect(String(query.ids)).not.toMatch(/[0-9a-f]{8}-/)
+    expect(query).toEqual({ ids: '00000000-0000-4000-8000-000000000000' })
+    expect(narrowQueryToTicketIds({ ids: T3 }, [T1])).toEqual({ ids: '00000000-0000-4000-8000-000000000000' })
   })
 })
 

@@ -5,7 +5,7 @@ import { AWAITING_DECISION_FILTER_ID, AWAITING_DECISION_FILTER_VALUE, AWAITING_D
 import { TicketTriage } from '../data/entities'
 import type { TriageScope } from './kbArticles'
 
-const NO_MATCH_IDS_SENTINEL = 'none'
+const NO_MATCH_TICKET_ID = '00000000-0000-4000-8000-000000000000'
 
 /**
  * Tickets whose AI triage proposal waits for a human decision: the projection sits in
@@ -62,7 +62,7 @@ export function isAwaitingDecisionRequested(query: Record<string, unknown> | und
 
 /**
  * Narrows a CRUD list query to the given ticket ids (`ids`, intersected with any ids the
- * caller already sent). An empty match keeps a non-UUID sentinel so the CRUD factory
+ * caller already sent). An empty match writes a well-formed id no ticket can have, so the CRUD factory
  * matches nothing instead of dropping the filter.
  */
 export function narrowQueryToTicketIds(query: Record<string, unknown>, ticketIds: string[]): Record<string, unknown> {
@@ -70,7 +70,7 @@ export function narrowQueryToTicketIds(query: Record<string, unknown>, ticketIds
   const existing = existingRaw ? existingRaw.split(',').map((value) => value.trim()).filter(Boolean) : []
   const allowed = new Set(ticketIds)
   const ids = existing.length > 0 ? existing.filter((value) => allowed.has(value)) : ticketIds
-  const next: Record<string, unknown> = { ...query, ids: ids.length > 0 ? ids.join(',') : NO_MATCH_IDS_SENTINEL }
+  const next: Record<string, unknown> = { ...query, ids: ids.length > 0 ? ids.join(',') : NO_MATCH_TICKET_ID }
   delete next[AWAITING_DECISION_FILTER_ID]
   return next
 }
