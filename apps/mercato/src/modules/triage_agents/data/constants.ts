@@ -84,6 +84,7 @@ export const SUPPORT_CONSULTANT_FEATURES = [
   'agent_orchestrator.proposals.dispose',
   'customers.people.view',
   'customers.companies.view',
+  'dashboards.view',
 ] as const
 
 export const SUPPORT_CONSULTANT_HIDDEN_SIDEBAR_ITEMS = [
