@@ -5,6 +5,7 @@
 import * as React from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
+import { clearNavBadge, setNavBadge } from '../nav/navBadges'
 import { saveBrandStyle } from '../../theme/brand-style'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -981,6 +982,73 @@ describe('AppShell', () => {
 
       const link = screen.getByRole('link', { name: 'Pay Links' })
       expect(link.querySelector('svg.lucide-ticket')).toBeTruthy()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  it('renders live nav badges on main sidebar items', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString()
+      if (url.includes('/api/auth/admin/nav-badges')) {
+        return new Response(JSON.stringify({
+          groups: [
+            {
+              id: 'helpdesk',
+              name: 'Helpdesk',
+              defaultName: 'Helpdesk',
+              items: [
+                { href: '/backend/queue', title: 'Queue', defaultTitle: 'Queue', enabled: true },
+              ],
+            },
+          ],
+          settingsSections: [],
+          settingsPathPrefixes: [],
+          profileSections: [],
+          profilePathPrefixes: ['/backend/profile/'],
+          grantedFeatures: ['queue.view'],
+          roles: ['admin'],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell email="demo@example.com" groups={[]} adminNavApi="/api/auth/admin/nav-badges">
+          <div>Hydrated content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Queue')).toBeInTheDocument()
+      }, { timeout: 10_000 })
+      const link = screen.getByText('Queue').closest('a') as HTMLAnchorElement
+      expect(link.querySelector('[aria-label="3 waiting"]')).toBeNull()
+
+      act(() => {
+        setNavBadge('/backend/queue', { count: 3, tone: 'attention', label: '3 waiting' })
+      })
+      const badge = link.querySelector('[aria-label="3 waiting"]')
+      expect(badge?.textContent).toBe('3')
+
+      act(() => {
+        clearNavBadge('/backend/queue')
+      })
+      expect(link.querySelector('[aria-label="3 waiting"]')).toBeNull()
     } finally {
       global.fetch = previousFetch
       window.fetch = previousWindowFetch
