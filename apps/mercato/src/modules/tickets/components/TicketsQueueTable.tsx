@@ -21,6 +21,8 @@ import { TICKET_PRIORITIES, TICKET_STATUSES } from '../data/constants'
 import extensionPoints from '../extension-points'
 import { ManualReviewIndicator, PriorityBadge, TicketStatusBadge } from './TicketBadges'
 import { usePeopleLabels } from './usePeopleLabels'
+import { useTicketDelete } from './useTicketDelete'
+import { useTicketAccess } from './detail/useTicketAccess'
 import { resolveCustomerLabel, resolveReservationLabel } from '../lib/linkedLabels'
 import { ticketDetailPath, type TicketQueueOption, type TicketRow } from './ticketTypes'
 
@@ -85,6 +87,8 @@ export default function TicketsQueueTable() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
+  const access = useTicketAccess()
+  const { deleteTicket, ConfirmDialogElement } = useTicketDelete('tickets-queue-delete')
 
   const params = React.useMemo(
     () => buildQueueQueryParams({ page, search, preset, filters, sorting }),
@@ -324,6 +328,16 @@ export default function TicketsQueueTable() {
           <RowActions
             items={[
               { id: 'open', label: t('tickets.queue.actions.open', 'Open'), href: ticketDetailPath(row.id) },
+              ...(access.canManage
+                ? [{
+                    id: 'delete',
+                    label: t('tickets.queue.actions.delete', 'Delete'),
+                    destructive: true,
+                    onSelect: () => {
+                      void deleteTicket(row).then((deleted) => { if (deleted) invalidate() })
+                    },
+                  }]
+                : []),
             ]}
           />
         )}
@@ -338,6 +352,7 @@ export default function TicketsQueueTable() {
         }}
         isLoading={isLoading}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

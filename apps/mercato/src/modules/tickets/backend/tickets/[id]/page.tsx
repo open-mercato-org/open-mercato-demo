@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, UserCheck, UserMinus } from 'lucide-react'
+import { ArrowRight, Trash2, UserCheck, UserMinus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -25,6 +26,7 @@ import { ClassifyDialog } from '../../../components/detail/ClassifyDialog'
 import { FlagReviewDialog } from '../../../components/detail/FlagReviewDialog'
 import { useTicketAccess } from '../../../components/detail/useTicketAccess'
 import { usePeopleLabels } from '../../../components/usePeopleLabels'
+import { useTicketDelete } from '../../../components/useTicketDelete'
 import {
   TICKET_LIST_PATH,
   ticketApiPath,
@@ -60,12 +62,14 @@ async function loadList<T>(path: string): Promise<T[]> {
 export default function TicketDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
   const t = useT()
+  const router = useRouter()
   const statusLabel = useStatusLabel()
   const access = useTicketAccess()
   const [classifyOpen, setClassifyOpen] = React.useState(false)
   const [flagOpen, setFlagOpen] = React.useState(false)
   const formId = `tickets-ticket-${id}`
   const { runMutation, retryLastMutation } = useGuardedMutation<TicketDetailInjectionContext>({ contextId: formId })
+  const { deleteTicket, ConfirmDialogElement } = useTicketDelete(`${formId}-delete`)
 
   const ticketQuery = useQuery<TicketRow | null>({
     queryKey: ['tickets', 'detail', id],
@@ -192,6 +196,12 @@ export default function TicketDetailPage({ params }: { params?: { id?: string } 
     triggerOnLoad: true,
   })
 
+  const handleDelete = React.useCallback(async () => {
+    if (!ticket) return
+    const deleted = await deleteTicket(ticket)
+    if (deleted) router.push(TICKET_LIST_PATH)
+  }, [deleteTicket, router, ticket])
+
   const menuActions = React.useMemo<ActionItem[]>(() => {
     if (!ticket?.status) return []
     const items: ActionItem[] = []
@@ -220,9 +230,15 @@ export default function TicketDetailPage({ params }: { params?: { id?: string } 
           onSelect: () => { void handleAssign(null) },
         })
       }
+      items.push({
+        id: 'delete',
+        label: t('tickets.delete.action', 'Delete ticket'),
+        icon: Trash2,
+        onSelect: () => { void handleDelete() },
+      })
     }
     return items
-  }, [access.canManage, access.userId, handleAssign, handleTransition, statusLabel, t, ticket])
+  }, [access.canManage, access.userId, handleAssign, handleDelete, handleTransition, statusLabel, t, ticket])
 
   if (!id || ticketQuery.isLoading) {
     return (
@@ -360,6 +376,7 @@ export default function TicketDetailPage({ params }: { params?: { id?: string } 
         {flagOpen ? (
           <FlagReviewDialog open={flagOpen} ticket={ticket} queues={queues} onClose={() => setFlagOpen(false)} onSaved={reload} />
         ) : null}
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
