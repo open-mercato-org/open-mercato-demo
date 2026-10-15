@@ -12,6 +12,7 @@ import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { TriageStatusBadge } from './TriageStatusBadge'
 import { useTicketTriage } from './useTicketTriage'
 import { useTriageRerun } from './useTriageRerun'
+import { useGrantedFeatures } from './useFeatureGranted'
 import { pendingProposalId, TRIAGE_DECISION_CARD_ANCHOR, type TriageView } from './triageTypes'
 
 type TicketLike = {
@@ -23,6 +24,11 @@ type TicketLike = {
 }
 
 const RERUN_CONTEXT_ID = 'triage_agents.summary-card'
+
+export const CASELOAD_LINK_FEATURE = 'agent_orchestrator.trace.view'
+export const FLOW_LINK_FEATURE = 'agent_orchestrator.processes.view'
+export const RERUN_FEATURE = 'triage_agents.run'
+const SUMMARY_CARD_FEATURES = [CASELOAD_LINK_FEATURE, FLOW_LINK_FEATURE, RERUN_FEATURE] as const
 
 const VERIFIED_CUSTOMER_MATCHES = new Set(['confirmed'])
 const VERIFIED_RESERVATION_MATCHES = new Set(['explicit_number_verified', 'single_reservation', 'inferred_from_content'])
@@ -58,6 +64,10 @@ export function TriageSummaryCard({ ticketId, ticket }: TriageSummaryCardProps) 
   const { triage, loading, error, reload } = useTicketTriage(ticketId)
   const { rerun, rerunning, ConfirmDialogElement } = useTriageRerun(ticketId, triage, RERUN_CONTEXT_ID, reload)
   const proposalPending = pendingProposalId(triage)
+  const granted = useGrantedFeatures(SUMMARY_CARD_FEATURES)
+  const showCaseloadLink = granted.has(CASELOAD_LINK_FEATURE)
+  const showFlowLink = granted.has(FLOW_LINK_FEATURE)
+  const showRerun = granted.has(RERUN_FEATURE)
 
   if (error === 'forbidden') return null
 
@@ -91,27 +101,31 @@ export function TriageSummaryCard({ ticketId, ticket }: TriageSummaryCardProps) 
                   {t('triage_agents.card.reviewProposal', 'Review proposal')}
                 </a>
               </Button>
-              <Button asChild variant="link" size="sm">
-                <Link href={`/backend/caseload/${encodeURIComponent(proposalPending)}`} data-testid="triage-open-caseload">
-                  {t('triage_agents.card.openInCaseload', 'Open in Caseload')}
-                </Link>
-              </Button>
+              {showCaseloadLink ? (
+                <Button asChild variant="link" size="sm">
+                  <Link href={`/backend/caseload/${encodeURIComponent(proposalPending)}`} data-testid="triage-open-caseload">
+                    {t('triage_agents.card.openInCaseload', 'Open in Caseload')}
+                  </Link>
+                </Button>
+              ) : null}
             </>
           ) : null}
-          {triage?.executionId ? (
+          {showFlowLink && triage?.executionId ? (
             <Button asChild variant="outline">
-              <Link href={`/backend/processes/${encodeURIComponent(triage.executionId)}`}>
+              <Link href={`/backend/processes/${encodeURIComponent(triage.executionId)}`} data-testid="triage-open-flow">
                 <ExternalLink className="size-4" aria-hidden />
                 {t('triage_agents.card.openFlow', 'Open flow')}
               </Link>
             </Button>
           ) : null}
-          <Button type="button" variant="outline" onClick={() => { void rerun() }} disabled={rerunning} data-testid="triage-rerun">
-            <RefreshCw className="size-4" aria-hidden />
-            {t('triage_agents.card.rerun', 'Re-run triage')}
-          </Button>
+          {showRerun ? (
+            <Button type="button" variant="outline" onClick={() => { void rerun() }} disabled={rerunning} data-testid="triage-rerun">
+              <RefreshCw className="size-4" aria-hidden />
+              {t('triage_agents.card.rerun', 'Re-run triage')}
+            </Button>
+          ) : null}
         </div>
-        {ConfirmDialogElement}
+        {showRerun ? ConfirmDialogElement : null}
       </CardContent>
     </Card>
   )
