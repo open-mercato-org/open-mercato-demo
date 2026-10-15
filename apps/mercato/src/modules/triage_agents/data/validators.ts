@@ -207,9 +207,7 @@ export const advisorEvidenceSchema = z.object({
           .string()
           .trim()
           .regex(KB_CITATION_PATTERN)
-          .nullable()
-          .optional()
-          .transform((value) => value ?? undefined),
+          .nullable(),
         text: z.string().min(1).max(5000),
       }),
     )

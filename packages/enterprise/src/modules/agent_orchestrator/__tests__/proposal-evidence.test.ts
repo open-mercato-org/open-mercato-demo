@@ -114,4 +114,22 @@ describe('proposal evidence envelope', () => {
       citations: ['refund-overpayment@3#S2', 'check:overpayment_confirmed'],
     })
   })
+
+  test('strict structured-output nulls normalize to absent keys instead of dropping the evidence block', () => {
+    const evidence = readProposalEvidence({
+      ...PAYLOAD,
+      evidence: {
+        checks: [{ key: 'overpayment_confirmed', step: null, passed: true, evidence: 'paid 2,750 > total 2,400' }],
+        citations: [{ kind: 'kb', ref: 'refund-overpayment@3', label: null, steps: null, href: null }],
+        segments: [{ source: 'generated', ref: null, text: 'we refund 350 EUR.' }],
+        uncertainty: [{ code: 'iban_unverified', message: 'IBAN taken from the email body', blocking: null }],
+      },
+    })
+    expect(evidence).toEqual({
+      checks: [{ key: 'overpayment_confirmed', passed: true, evidence: 'paid 2,750 > total 2,400' }],
+      citations: [{ kind: 'kb', ref: 'refund-overpayment@3' }],
+      segments: [{ source: 'generated', text: 'we refund 350 EUR.' }],
+      uncertainty: [{ code: 'iban_unverified', message: 'IBAN taken from the email body' }],
+    })
+  })
 })

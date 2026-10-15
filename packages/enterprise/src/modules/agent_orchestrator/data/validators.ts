@@ -72,9 +72,21 @@ export type ProposalOption = z.infer<typeof proposalOptionSchema>
  * Envelope `rationale` explains the option SET; why one option was ranked where it
  * was lives on the option itself.
  */
+/**
+ * Provider strict structured outputs (OpenAI `strict: true`) cannot express an
+ * optional key, so agents emit `null` for "absent". The evidence block accepts that
+ * `null` and normalizes it to an absent key, instead of failing validation and
+ * dropping the whole block. Output types are unchanged.
+ */
+function absentWhenNull<T extends ZodTypeAny>(schema: T) {
+  return schema
+    .nullish()
+    .transform((value): z.output<T> | undefined => (value === null ? undefined : (value as z.output<T> | undefined)))
+}
+
 export const proposalEvidenceCheckSchema = z.object({
   key: z.string().min(1).max(200),
-  step: z.string().min(1).max(200).optional(),
+  step: absentWhenNull(z.string().min(1).max(200)),
   passed: z.boolean(),
   evidence: z.string().max(PROPOSAL_RATIONALE_MAX),
 })
@@ -83,15 +95,15 @@ export type ProposalEvidenceCheck = z.infer<typeof proposalEvidenceCheckSchema>
 export const proposalEvidenceCitationSchema = z.object({
   kind: z.string().min(1).max(100),
   ref: z.string().min(1).max(PROPOSAL_CITATION_REF_MAX),
-  label: z.string().max(PROPOSAL_OPTION_LABEL_MAX).optional(),
-  steps: z.array(z.string().min(1).max(200)).max(PROPOSAL_ACTION_CITATIONS_MAX).optional(),
-  href: z.string().max(2000).optional(),
+  label: absentWhenNull(z.string().max(PROPOSAL_OPTION_LABEL_MAX)),
+  steps: absentWhenNull(z.array(z.string().min(1).max(200)).max(PROPOSAL_ACTION_CITATIONS_MAX)),
+  href: absentWhenNull(z.string().max(2000)),
 })
 export type ProposalEvidenceCitation = z.infer<typeof proposalEvidenceCitationSchema>
 
 export const proposalEvidenceSegmentSchema = z.object({
   source: z.enum(['template', 'generated']),
-  ref: z.string().min(1).max(PROPOSAL_CITATION_REF_MAX).optional(),
+  ref: absentWhenNull(z.string().min(1).max(PROPOSAL_CITATION_REF_MAX)),
   text: z.string(),
 })
 export type ProposalEvidenceSegment = z.infer<typeof proposalEvidenceSegmentSchema>
@@ -99,7 +111,7 @@ export type ProposalEvidenceSegment = z.infer<typeof proposalEvidenceSegmentSche
 export const proposalEvidenceUncertaintySchema = z.object({
   code: z.string().min(1).max(100),
   message: z.string().max(PROPOSAL_RATIONALE_MAX),
-  blocking: z.boolean().optional(),
+  blocking: absentWhenNull(z.boolean()),
 })
 export type ProposalEvidenceUncertainty = z.infer<typeof proposalEvidenceUncertaintySchema>
 
