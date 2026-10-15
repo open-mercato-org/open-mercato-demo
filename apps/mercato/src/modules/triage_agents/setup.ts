@@ -4,6 +4,8 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { ensureTriageProcess } from './lib/processSeed'
+import { SUPPORT_CONSULTANT_FEATURES, SUPPORT_CONSULTANT_ROLE } from './data/constants'
+import { seedSupportConsultantRole } from './lib/demoConsultant'
 
 const logger = createLogger('triage_agents').child({ component: 'setup' })
 
@@ -22,6 +24,11 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['triage_agents.*'],
     admin: ['triage_agents.*', ...TRIAGE_OPERATOR_FEATURES],
     employee: TRIAGE_OPERATOR_FEATURES,
+    [SUPPORT_CONSULTANT_ROLE]: [...SUPPORT_CONSULTANT_FEATURES],
+  },
+
+  async seedDefaults({ em, tenantId }) {
+    await seedSupportConsultantRole(em as EntityManager, tenantId)
   },
 
   async seedExamples({ em, container, tenantId, organizationId }) {

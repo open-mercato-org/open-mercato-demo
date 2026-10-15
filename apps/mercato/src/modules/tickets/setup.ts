@@ -8,6 +8,7 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['tickets.*'],
     admin: ['tickets.*'],
     employee: ['tickets.view', 'tickets.manage', 'tickets.classify', 'tickets.reply'],
+    support_consultant: ['tickets.view', 'tickets.manage', 'tickets.classify', 'tickets.reply'],
   },
 
   async onTenantCreated({ em, tenantId, organizationId }) {

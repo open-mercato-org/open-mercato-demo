@@ -1,6 +1,12 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { getCliModules, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findAppRoot } from '@open-mercato/shared/lib/bootstrap/appResolver'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { DEMO_CONSULTANT_DEFAULT_EMAIL, SUPPORT_CONSULTANT_ROLE } from './data/constants'
+import { ensureDemoConsultant, generateDemoPassword } from './lib/demoConsultant'
 import { resetTriageDemo, resolveScenarios, sendScenario } from './lib/demo'
 import { resolveTriageAutoStart } from './lib/autoStart'
 import { seedTriageGoldenEvals } from './lib/goldenEvals'
@@ -133,6 +139,56 @@ const seedEvals: ModuleCli = {
   },
 }
 
-const commands: ModuleCli[] = [setupProcess, demoSend, demoReset, rebuildProjection, seedEvals]
+const DEMO_CONSULTANT_FILE = 'demo-consultant.json'
+
+function writeConsultantCredentials(record: { email: string; password: string; createdAt: string }): string {
+  const appRoot = findAppRoot()
+  const directory = appRoot?.mercatoDir ?? path.join(process.cwd(), '.mercato')
+  fs.mkdirSync(directory, { recursive: true })
+  const file = path.join(directory, DEMO_CONSULTANT_FILE)
+  fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  fs.chmodSync(file, 0o600)
+  return file
+}
+
+const demoConsultant: ModuleCli = {
+  command: 'demo:consultant',
+  async run(rest) {
+    const { flags } = parseArgs(rest)
+    const scope = requireScope(
+      flags,
+      'Usage: mercato triage_agents demo:consultant --tenant <tenantId> --org <organizationId> [--email <email>] [--password <password>]',
+    )
+    if (!scope) return
+    const email = (flags.email ?? DEMO_CONSULTANT_DEFAULT_EMAIL).trim().toLowerCase()
+    const providedPassword = flags.password && flags.password !== 'true' ? flags.password : null
+    const password = providedPassword ?? generateDemoPassword()
+    const modules = getCliModules()
+    if (!modules.length) {
+      console.error('No CLI modules registered. Run `yarn generate` first.')
+      return
+    }
+    const container = await createRequestContainer()
+    const result = await ensureDemoConsultant(container, { ...scope, email, password, modules })
+    if (!result.ok) {
+      if (result.reason === 'password_policy') {
+        const requirements = formatPasswordRequirements(getPasswordPolicy(), (_key, fallback) => fallback)
+        console.error(`The password does not meet the policy${requirements ? `: ${requirements}` : ''}.`)
+      } else if (result.reason === 'organization_not_found') {
+        console.error(`Organization ${scope.organizationId} was not found in tenant ${scope.tenantId}.`)
+      } else {
+        console.error(`${email} already exists with other roles (${result.detail ?? '-'}); pick another --email.`)
+      }
+      process.exitCode = 1
+      return
+    }
+    console.log(`Support consultant ${result.created ? 'created' : 'updated'}: ${result.email} (role ${SUPPORT_CONSULTANT_ROLE}).`)
+    if (providedPassword) return
+    const file = writeConsultantCredentials({ email: result.email, password, createdAt: new Date().toISOString() })
+    console.log(`Credentials written to ${file}`)
+  },
+}
+
+const commands: ModuleCli[] = [setupProcess, demoSend, demoReset, rebuildProjection, seedEvals, demoConsultant]
 
 export default commands

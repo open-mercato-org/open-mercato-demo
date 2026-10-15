@@ -75,3 +75,21 @@ export const WORKFLOW_GRANTED_FEATURES = [
   'knowledge_articles.view',
   'customers.people.view',
 ] as const
+
+export const SUPPORT_CONSULTANT_ROLE = 'support_consultant'
+
+export const SUPPORT_CONSULTANT_FEATURES = [
+  'triage_agents.view',
+  'agent_orchestrator.proposals.view',
+  'agent_orchestrator.proposals.dispose',
+  'customers.people.view',
+  'customers.companies.view',
+] as const
+
+export const SUPPORT_CONSULTANT_HIDDEN_SIDEBAR_ITEMS = [
+  '/backend/caseload',
+  '/backend/overview',
+  '/backend/audit',
+] as const
+
+export const DEMO_CONSULTANT_DEFAULT_EMAIL = 'consultant@acme.example'

@@ -6,6 +6,7 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['knowledge_articles.*'],
     admin: ['knowledge_articles.*'],
     employee: ['knowledge_articles.view'],
+    support_consultant: ['knowledge_articles.view'],
   },
 
   async seedExamples({ em, tenantId, organizationId }) {

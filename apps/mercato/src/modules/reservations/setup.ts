@@ -10,6 +10,7 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['reservations.*'],
     admin: ['reservations.*'],
     employee: ['reservations.view', 'reservations.payment.record', 'reservations.refund.request'],
+    support_consultant: ['reservations.view'],
   },
 
   async seedExamples({ container, tenantId, organizationId }) {
