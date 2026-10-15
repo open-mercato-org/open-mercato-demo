@@ -100,3 +100,72 @@ export async function verifyProposalGrounding(payload: unknown, loadArticle: Art
     articleRefs: [...articles.keys()],
   }
 }
+
+export const KB_GET_ARTICLE_TOOL = 'knowledge_articles.get_article'
+export const KB_NOT_CONSULTED_REASON_CODE = 'kb_not_consulted'
+export const KB_NOT_CONSULTED_REASON =
+  'The resolution advisor did not read the knowledge base article it cites; review the proposal manually.'
+
+export type RecordedToolCall = {
+  toolName: string
+  status?: string | null
+  requestSummary?: unknown
+  responseSummary?: unknown
+}
+
+export type KbConsultation = {
+  consulted: boolean
+  issues: string[]
+  readRefs: string[]
+}
+
+type ArticleRead = { key: string; version: number | null }
+
+function normalizeToolName(name: string): string {
+  return name.replace(/__/g, '.')
+}
+
+function readPositiveInt(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
+}
+
+function readArticleRead(call: RecordedToolCall): ArticleRead | null {
+  const response = parseMaybeJsonRecord(call.responseSummary)
+  const request = parseMaybeJsonRecord(call.requestSummary)
+  const preview = response && typeof response.preview === 'string' ? response.preview : null
+  if (response?.found === false || (preview && /"found"\s*:\s*false/.test(preview))) return null
+  if (response && typeof response.key === 'string') return { key: response.key, version: readPositiveInt(response.version) }
+  const fromPreview = preview ? /"citation"\s*:\s*"([^"@]+)@(\d+)"/.exec(preview) : null
+  if (fromPreview) return { key: fromPreview[1], version: Number(fromPreview[2]) }
+  if (request && typeof request.key === 'string') return { key: request.key, version: readPositiveInt(request.version) }
+  return null
+}
+
+/**
+ * Fail-closed KB consultation check over the advisor run's recorded tool calls:
+ * every article the proposal cites must have been fetched successfully
+ * (`found !== false`) with `knowledge_articles.get_article` during that run. A
+ * proposal citing an article it never read is a guess, however plausible its keys.
+ */
+export function assessKbConsultation(toolCalls: RecordedToolCall[], citedRefs: string[]): KbConsultation {
+  const reads = toolCalls
+    .filter((call) => normalizeToolName(call.toolName) === KB_GET_ARTICLE_TOOL && (call.status ?? 'ok') === 'ok')
+    .map(readArticleRead)
+    .filter((entry): entry is ArticleRead => entry !== null)
+  const readRefs = reads.map((entry) => (entry.version ? `${entry.key}@${entry.version}` : entry.key))
+  if (reads.length === 0) {
+    return {
+      consulted: false,
+      issues: ['The advisor did not read the knowledge base article (no successful knowledge_articles.get_article call).'],
+      readRefs,
+    }
+  }
+  const issues: string[] = []
+  for (const ref of citedRefs) {
+    const parsed = parseCitationRef(ref)
+    if (!parsed) continue
+    const read = reads.some((entry) => entry.key === parsed.key && (entry.version === null || entry.version === parsed.version))
+    if (!read) issues.push(`Article ${parsed.key}@${parsed.version} is cited but was never read with knowledge_articles.get_article.`)
+  }
+  return { consulted: issues.length === 0, issues, readRefs }
+}

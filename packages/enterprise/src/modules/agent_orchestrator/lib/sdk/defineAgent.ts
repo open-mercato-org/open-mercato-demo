@@ -2,6 +2,7 @@
 import {
   defineAiAgent,
   type AiAgentDefinition,
+  type AiAgentLoopConfig,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -9,6 +10,9 @@ import type { AgentType } from '../../data/validators'
 import { getSkillEntry } from './defineSkill'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
+
+/** The loop controls a propose-only agent may declare (additive over `{ maxSteps }`). */
+export type AgentLoopSubset = { maxSteps?: number; prepareStep?: AiAgentLoopConfig['prepareStep'] }
 
 const logger = createLogger('agent_orchestrator').child({ component: 'define-agent' })
 
@@ -85,8 +89,12 @@ export interface DefineAgentInput {
   subAgents?: string[]
   defaultProvider?: string
   defaultModel?: string
-  /** Object-safe loop subset only. */
-  loop?: { maxSteps?: number }
+  /**
+   * Object-safe loop subset. `prepareStep` runs inside the read-only tool loop
+   * (e.g. to require a tool call before the agent may answer); the runtime still
+   * composes it under its own allowlist / mutation-gate `prepareStep`.
+   */
+  loop?: AgentLoopSubset
   /**
    * Runtime the agent executes on. `defineAgent` only ever produces agents for
    * the native in-process runner (registered as `'native'`), so this is
@@ -175,7 +183,7 @@ export interface AgentRegistryEntry {
   defaultProvider?: string
   defaultModel?: string
   /** Object-safe loop subset (see DefineAgentInput). */
-  loop?: { maxSteps?: number }
+  loop?: AgentLoopSubset
   /** Runtime the agent executes on. Always set (`'native'` for `defineAgent` agents; `'in-process'` accepted as a legacy alias). */
   runtime: AgentRuntime
   /** Optional Playground "Insert sample" input (see DefineAgentInput). */

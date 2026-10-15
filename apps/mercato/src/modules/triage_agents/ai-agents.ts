@@ -9,8 +9,9 @@ import {
 } from './data/constants'
 import { classifierResultSchema, contextIdentifierResultSchema, resolutionAdvisorResultSchema } from './data/validators'
 import { loadTriagePrompt } from './lib/prompts'
+import { requireKbArticleRead } from './lib/kbReadGuard'
 
-const MAX_STEPS = 8
+const MAX_STEPS = 10
 
 const SAMPLE_TICKET_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -79,7 +80,7 @@ export const aiAgents: AiAgentDefinition[] = [
       'knowledge_articles.search',
       'knowledge_articles.get_article',
     ],
-    loop: { maxSteps: MAX_STEPS },
+    loop: { maxSteps: MAX_STEPS, prepareStep: requireKbArticleRead },
     agentType: 'researcher',
     result: { kind: 'research', schema: classifierResultSchema },
     sampleInput: { ticketId: SAMPLE_TICKET_ID, identification: SAMPLE_IDENTIFICATION },
@@ -91,7 +92,7 @@ export const aiAgents: AiAgentDefinition[] = [
     description: 'Follows the knowledge base article of the ticket topic, runs its checks against the reservation and proposes the recommended actions with a reply draft, citing the steps it followed.',
     instructions: loadTriagePrompt('resolution_advisor'),
     tools: ['knowledge_articles.get_article', 'reservations.get_details', 'tickets.get_ticket'],
-    loop: { maxSteps: MAX_STEPS },
+    loop: { maxSteps: MAX_STEPS, prepareStep: requireKbArticleRead },
     agentType: 'decision_maker',
     allowedActions: [...ADVISOR_ACTION_TYPES],
     result: { kind: 'proposal', schema: resolutionAdvisorResultSchema },

@@ -1,9 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentProposal } from '@open-mercato/enterprise/modules/agent_orchestrator/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { AgentProposal, AgentSpan, AgentToolCall } from '@open-mercato/enterprise/modules/agent_orchestrator/data/entities'
 import { RESOLUTION_ADVISOR_AGENT_ID } from '../data/constants'
 import { TicketTriage } from '../data/entities'
-import { verifyProposalGrounding } from './grounding'
+import {
+  KB_NOT_CONSULTED_REASON,
+  KB_NOT_CONSULTED_REASON_CODE,
+  assessKbConsultation,
+  verifyProposalGrounding,
+  type KbConsultation,
+} from './grounding'
 import { loadArticlePolicy, type KbArticleVersionReader, type TriageScope } from './kbArticles'
 import {
   findTriage,
@@ -62,6 +68,32 @@ function hasReplyAction(payload: Record<string, unknown> | null): boolean {
 }
 
 /**
+ * The advisor run's recorded tool calls decide whether it read the articles it
+ * cites. `null` when the run left no trace at all (trace capture disabled via
+ * `OM_AGENT_TRACE_CAPTURE=off`), because absence of evidence is then not evidence.
+ */
+async function loadKbConsultation(
+  em: EntityManager,
+  scope: TriageScope,
+  runId: string,
+  citedRefs: string[],
+): Promise<KbConsultation | null> {
+  const where = { agentRunId: runId, tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const spanCount = await em.count(AgentSpan, where)
+  if (spanCount === 0) return null
+  const toolCalls = await findWithDecryption(em, AgentToolCall, where, {}, scope)
+  return assessKbConsultation(
+    toolCalls.map((call) => ({
+      toolName: call.toolName,
+      status: call.status,
+      requestSummary: call.requestSummary,
+      responseSummary: call.responseSummary,
+    })),
+    citedRefs,
+  )
+}
+
+/**
  * The advisor raised a proposal: the projection moves to `awaiting_approval`, records
  * the recommended action, and runs the KB grounding verification (spec fallback:
  * cited article versions, steps and checks must exist; actions must be recommended).
@@ -98,8 +130,15 @@ export async function syncProposalCreated(
     }
     triage.recommendedActionLabel = outcome.recommendedActionLabel
     const verdict = await verifyProposalGrounding(proposalPayload, (key, version) => loadArticlePolicy(kbReader, scope, key, version))
-    triage.groundingState = verdict.state
-    triage.groundingIssues = verdict.issues
+    const consultation = runId ? await loadKbConsultation(em, scope, runId, verdict.articleRefs) : null
+    const kbNotConsulted = consultation !== null && !consultation.consulted
+    triage.groundingState = kbNotConsulted ? 'unverified' : verdict.state
+    triage.groundingIssues = kbNotConsulted ? [...consultation.issues, ...verdict.issues].slice(0, 20) : verdict.issues
+    if (kbNotConsulted && !settled) {
+      triage.aiMode = 'manual_review'
+      triage.reasonCode = KB_NOT_CONSULTED_REASON_CODE
+      triage.reason = KB_NOT_CONSULTED_REASON
+    }
   }
   await em.flush()
   return triage

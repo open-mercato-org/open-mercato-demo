@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { verifyProposalGrounding } from '../lib/grounding'
+import { assessKbConsultation, verifyProposalGrounding } from '../lib/grounding'
 import { toArticlePolicy } from '../lib/kbArticles'
 import { draftStateFromEffects, mergeRunIds, noProposalFlag, readAdviceOutcome } from '../lib/projection'
 import { deriveStageArgs } from '../lib/rebuild'
@@ -75,6 +75,57 @@ describe('KB grounding verification (fallback)', () => {
     value.evidence.citations[0].ref = `${ARTICLE_KEY}@9`
     const verdict = await verifyProposalGrounding(value, loader)
     expect(verdict.issues[0]).toContain('does not exist')
+  })
+})
+
+describe('KB consultation check (fail closed)', () => {
+  const cited = [`${ARTICLE_KEY}@3`]
+
+  it('passes when the advisor fetched the cited article', () => {
+    const result = assessKbConsultation(
+      [
+        { toolName: 'knowledge_articles__get_article', status: 'ok', requestSummary: { key: ARTICLE_KEY }, responseSummary: { found: true, key: ARTICLE_KEY, version: 3 } },
+        { toolName: 'reservations__get_details', status: 'ok', requestSummary: {}, responseSummary: {} },
+      ],
+      cited,
+    )
+    expect(result).toEqual({ consulted: true, issues: [], readRefs: [`${ARTICLE_KEY}@3`] })
+  })
+
+  it('reads a truncated article response from its preview', () => {
+    const preview = JSON.stringify({ found: true, key: ARTICLE_KEY, version: 3, citation: `${ARTICLE_KEY}@3`, article: {} })
+    const result = assessKbConsultation(
+      [{ toolName: 'knowledge_articles.get_article', status: 'ok', requestSummary: { key: ARTICLE_KEY }, responseSummary: { _truncated: true, preview } }],
+      cited,
+    )
+    expect(result.consulted).toBe(true)
+  })
+
+  it('fails when no article was read', () => {
+    const result = assessKbConsultation([{ toolName: 'tickets__get_ticket', status: 'ok' }], cited)
+    expect(result.consulted).toBe(false)
+    expect(result.issues[0]).toContain('did not read the knowledge base article')
+  })
+
+  it('fails when the fetch found nothing or errored', () => {
+    expect(
+      assessKbConsultation(
+        [
+          { toolName: 'knowledge_articles__get_article', status: 'ok', requestSummary: { key: ARTICLE_KEY }, responseSummary: { found: false, key: ARTICLE_KEY } },
+          { toolName: 'knowledge_articles__get_article', status: 'error', requestSummary: { key: ARTICLE_KEY } },
+        ],
+        cited,
+      ).consulted,
+    ).toBe(false)
+  })
+
+  it('fails when the cited article differs from the one read', () => {
+    const result = assessKbConsultation(
+      [{ toolName: 'knowledge_articles__get_article', status: 'ok', responseSummary: { found: true, key: 'payments.incoming.payment_confirmation', version: 1 } }],
+      cited,
+    )
+    expect(result.consulted).toBe(false)
+    expect(result.issues[0]).toContain(`${ARTICLE_KEY}@3 is cited but was never read`)
   })
 })
 

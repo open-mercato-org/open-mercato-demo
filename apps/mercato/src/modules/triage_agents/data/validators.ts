@@ -88,7 +88,7 @@ export const classificationSchema = z
     categoryKey: z.string().trim().min(1).max(200),
     subcategoryKey: z.string().trim().min(1).max(200),
     topicKey: z.string().trim().min(1).max(200),
-    topicVersion: z.number().int().min(1).nullable(),
+    topicVersion: z.number().int().min(1).describe('The version returned by knowledge_articles.get_article for topicKey'),
     summary: z.string().trim().min(1).max(SUMMARY_MAX_LENGTH),
     intent: z.string().trim().min(1).max(200),
     urgencySignal: z.enum(['none', 'raise_one']),
