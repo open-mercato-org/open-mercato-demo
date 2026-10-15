@@ -161,7 +161,7 @@ export const replySendActionSchema = z.object({
   citations: citationsSchema,
 })
 
-export const advisorActionSchema = z.discriminatedUnion('type', [
+export const advisorActionSchema = z.union([
   refundRequestActionSchema,
   ticketTransitionActionSchema,
   replySendActionSchema,
