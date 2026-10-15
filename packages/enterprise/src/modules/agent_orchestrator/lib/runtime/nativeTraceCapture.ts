@@ -36,6 +36,84 @@ export type NativeStepToolCall = {
   durationMs: number
 }
 
+type RawStepToolCall = {
+  toolCallId?: string
+  toolName?: string
+  input?: unknown
+  args?: unknown
+  result?: unknown
+  experimental_toToolResultError?: { code?: string; message?: string }
+  startTime?: number
+  endTime?: number
+}
+
+type RawStepToolResult = {
+  toolCallId?: string
+  output?: unknown
+  result?: unknown
+}
+
+type RawStepContentPart = {
+  type?: string
+  toolCallId?: string
+  error?: unknown
+}
+
+export type RawStepToolEvent = {
+  toolCalls?: RawStepToolCall[]
+  toolResults?: RawStepToolResult[]
+  content?: RawStepContentPart[]
+}
+
+function describeToolError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return 'unknown error'
+  }
+}
+
+/**
+ * Maps one AI SDK step's tool activity to trace records. AI SDK 5+ reports the
+ * call arguments as `toolCalls[].input`, the results in a separate `toolResults`
+ * list (`output`) and failures as `tool-error` content parts, all joined by
+ * `toolCallId`; the legacy `args`/`result` fields are read as a fallback.
+ */
+export function extractStepToolCalls(raw: RawStepToolEvent): NativeStepToolCall[] {
+  const resultsById = new Map<string, RawStepToolResult>()
+  for (const result of raw.toolResults ?? []) {
+    if (result.toolCallId) resultsById.set(result.toolCallId, result)
+  }
+  const errorsById = new Map<string, unknown>()
+  for (const part of raw.content ?? []) {
+    if (part.type === 'tool-error' && part.toolCallId) errorsById.set(part.toolCallId, part.error)
+  }
+  return (raw.toolCalls ?? []).map((toolCall) => {
+    const matchedResult = toolCall.toolCallId ? resultsById.get(toolCall.toolCallId) : undefined
+    const matchedError = toolCall.toolCallId && errorsById.has(toolCall.toolCallId)
+      ? errorsById.get(toolCall.toolCallId)
+      : undefined
+    const legacyError = toolCall.experimental_toToolResultError
+    const error = legacyError
+      ? { code: String(legacyError.code ?? 'unknown'), message: String(legacyError.message ?? '') }
+      : matchedError !== undefined
+        ? { code: 'tool_error', message: describeToolError(matchedError) }
+        : null
+    return {
+      toolName: toolCall.toolName ?? 'unknown',
+      args: toolCall.input ?? toolCall.args ?? {},
+      result: matchedResult ? (matchedResult.output ?? matchedResult.result) : toolCall.result,
+      ...(error ? { error } : {}),
+      durationMs:
+        typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
+          ? toolCall.endTime - toolCall.startTime
+          : 0,
+    }
+  })
+}
+
 export type NativeStepRecord = {
   modelId: string
   finishReason: string

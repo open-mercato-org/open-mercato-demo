@@ -24,8 +24,10 @@ import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
   captureNativeRunTrace,
+  extractStepToolCalls,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
+  type RawStepToolEvent,
 } from './nativeTraceCapture'
 import {
   AgentGuardrailBlockedError,
@@ -216,15 +218,7 @@ export class NativeAgentRunner {
     const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
     const recordStep = async (event: unknown): Promise<void> => {
-      const raw = event as {
-        toolCalls?: Array<{
-          toolName?: string
-          args?: unknown
-          result?: unknown
-          experimental_toToolResultError?: { code?: string; message?: string }
-          startTime?: number
-          endTime?: number
-        }>
+      const raw = event as RawStepToolEvent & {
         finishReason?: string
         usage?: { inputTokens?: number; outputTokens?: number }
         response?: { modelId?: string }
@@ -236,23 +230,7 @@ export class NativeAgentRunner {
           inputTokens: raw.usage?.inputTokens ?? 0,
           outputTokens: raw.usage?.outputTokens ?? 0,
         },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
-          toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
-          ...(toolCall.experimental_toToolResultError
-            ? {
-                error: {
-                  code: String(toolCall.experimental_toToolResultError.code ?? 'unknown'),
-                  message: String(toolCall.experimental_toToolResultError.message ?? ''),
-                },
-              }
-            : {}),
-          durationMs:
-            typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
-              ? toolCall.endTime - toolCall.startTime
-              : 0,
-        })),
+        toolCalls: extractStepToolCalls(raw),
         endedAtMs: Date.now(),
       })
     }
