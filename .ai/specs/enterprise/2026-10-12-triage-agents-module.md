@@ -200,6 +200,9 @@ On `GET /api/tickets/tickets` (list + detail), add `_triage: { aiMode, stage, re
 | `triage-flow-tab` | `detail:tickets.ticket:tabs` | AO `ProcessFlowTrace` for the projection's `process_execution_id` (attempts = the projection history) with an attempt selector, **Playback**, **Compare** (≥ 2 attempts) and **Re-run triage** (the triage endpoint, with supersede after confirmation when a proposal is pending; the AO generic re-run stays off). |
 | `triage-queue-column` | `data-table:tickets.ticket:columns` + `:filters` | the "AI" column (status badge + recommended action), filter "AI status". |
 | `triage-scenario-presets` | `data-table:tickets.ticket:toolbar` | "Send demo scenario" → simulate endpoint with a preset. |
+| `awaiting-decision-preset` | `data-table:tickets.ticket:toolbar` | "Awaiting decision" toggle with the pending count (see Implementation Notes, consultant decision inbox). |
+| `awaiting-decision-menu` | `menu:sidebar:main` | Helpdesk sidebar entry "Awaiting decision" → the pre-filtered queue. |
+| `awaiting-decision-nav-badge` | `backend:nav:badges` | Headless feeder of the sidebar entry's count badge. |
 
 All strings are in `i18n/en.json`; DS tokens only.
 
@@ -352,6 +355,22 @@ Not granted: `agent_orchestrator.trace.view|agents.*|processes.*|eval.*`, `triag
 
 **Live check (gpt-6.1-sol, ephemeral env).** All six scenarios: every agent run `ok`; classifier called `get_ticket` → `browse_taxonomy` → `get_article` each time; advisor called `get_article` → `get_details` → `get_ticket`. Overpayment → `awaiting_approval`, refund 350 EUR + reply citing `…overpayment_refund@3#S4/#S5`, grounding verified; payment confirmed → proposal, verified; payment not visible → `payment_not_visible` (no proposal); room preference / hotel complaint → `topic_manual_only`; ambiguous date change → `reservation_ambiguous`.
 
+## Implementation Notes (consultant decision inbox, 2026-10-15)
+
+**Goal.** The consultant finds the cases waiting for their decision without the AI-operator Caseload (hidden from their sidebar).
+
+**What "awaiting decision" means** (`lib/awaitingDecision.ts`, `findTicketIdsAwaitingDecision`): tickets of the selected organization whose `ticket_triages` row is `stage = 'awaiting_approval'` with no recorded `disposition` and a `proposal_id` whose AO proposal is still `pending` (not deleted); newest first, capped at 200 (the CRUD `ids` limit). It is **not** narrowed to the review task's `assignedToRoles`: the workflow's review is assigned to `employee`, while the consultant decides through the `agent_orchestrator.proposals.dispose` feature (the dispose API does not check task assignment either), so role-scoping would hide every case from the role that exists to decide them. The label is therefore "Awaiting decision", not "…my decision". Scoping to the user's roles/claimed tasks is a follow-up once reviews are assigned to the consultant role.
+
+**Pieces.**
+- `GET /api/triage_agents/awaiting-decision` → `{ total }` (features `triage_agents.view` + `agent_orchestrator.proposals.dispose`).
+- API interceptor `triage_agents.tickets-awaiting-decision` on `tickets/tickets` GET (feature `triage_agents.view`): `?triageDecision=awaiting` is replaced by `ids=<matching ticket ids>` (intersected with any `ids` already sent; an empty match writes a non-UUID sentinel so the CRUD factory matches nothing instead of dropping the filter). The `tickets` module stays AI-agnostic.
+- `triage-queue-filter` gains a second, server-strategy filter "AI decision" (`triageDecision`, option "Awaiting decision"); the tickets queue forwards injected filter values as list query params and syncs filters with the URL (`?filter.triageDecision=awaiting`, tickets spec).
+- `awaiting-decision-preset` (toolbar): one-click toggle of that URL filter, pressed when active, with the pending count.
+- `awaiting-decision-menu` (`menu:sidebar:main`, group `tickets.nav.group`, after `/backend/tickets`) → `/backend/tickets?filter.triageDecision=awaiting`; `awaiting-decision-nav-badge` (`backend:nav:badges`) publishes the count on that href via `setNavBadge` (tone `attention`). All three are gated by `triage_agents.view` + `agent_orchestrator.proposals.dispose`; the count refreshes (debounced) on `agent_orchestrator.proposal.*` and `triage_agents.triage.updated` through the DOM Event Bridge.
+- AO fix (AO delta spec changelog): on `/backend/caseload/<id>` "Open full trace" and "Inspect run" need `agent_orchestrator.trace.view`, "Open process" needs `agent_orchestrator.processes.view`.
+
+**Tests.** Unit: `__tests__/awaitingDecision.test.ts` (query, narrowing incl. empty match, interceptor, deep link = tickets' `buildTicketQueueHref`, menu gating), `__tests__/awaitingDecisionWidgets.client.test.tsx` (preset count/toggle, nav badge publish/clear); tickets `__tests__/queueUrlState.test.ts`; AO `__tests__/caseload-detail-ai-links-gating.test.tsx`. Integration: `TC-TRIAGE-004` — as the consultant, the count ≥ 1 after a triage, the sidebar entry (href + count) opens the filtered queue with the ticket, the preset toggles the filter, the Caseload proposal page shows no trace/process/inspect buttons, approving drops the ticket from the filter and lowers the count. The consultant helpers moved to `__integration__/consultantHelpers.ts` (shared with `TC-TRIAGE-003`).
+
 ## Changelog
 - **2026-10-12** — Initial draft.
 - **2026-10-12** — KB grounding section (citations, guardrail, draft segments, demo proof); English output; external-node stub removed.
@@ -362,3 +381,4 @@ Not granted: `agent_orchestrator.trace.view|agents.*|processes.*|eval.*`, `triag
 - **2026-10-13** — Decision card + flow tab widgets, KB citation resolver, re-run with supersede (projection-first close, AO dispose, `rerunOfExecutionId`), stale-write guard + split `rejected` branch so a superseded proposal does not flag the ticket, `attempts` on the triage API, v4 (finance review) advisor fixture, TC-TRIAGE-002.
 - **2026-10-15** — `support_consultant` role (per-module `defaultRoleFeatures`, seeded by `seedDefaults`), feature-gated summary-card links, role sidebar preference hiding Caseload/Overview/Audit, `demo:consultant` CLI, TC-TRIAGE-003.
 - **2026-10-15** — OpenAI strict structured outputs: advisor `segments[].ref` required-nullable, `topicVersion` required, strict-schema test on the AI SDK JSON schema; AO evidence envelope accepts `null` optional keys. KB reads: `requireKbArticleRead` loop guard (`defineAgent` `loop.prepareStep`), numbered prompt procedures, non-blocking missing facts, fail-closed `kb_not_consulted` routing on proposals whose run did not fetch the cited article.
+- **2026-10-15** — Consultant decision inbox: "Awaiting decision" count API, tickets list interceptor + server filter, queue preset, Helpdesk sidebar entry with live badge, TC-TRIAGE-004.
