@@ -23,8 +23,13 @@ test.describe('TC-TICKETS-008: delete tickets from the UI', () => {
 
       await login(page, 'admin')
       await page.goto(`/backend/tickets/${ticketId}`, { waitUntil: 'commit' })
-      await page.getByRole('button', { name: 'Actions', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Delete ticket' }).click()
+      const actionsTrigger = page.getByRole('button', { name: 'Actions', exact: true })
+      const deleteItem = page.getByRole('menuitem', { name: 'Delete ticket' })
+      await expect(async () => {
+        await actionsTrigger.click()
+        await expect(deleteItem).toBeVisible({ timeout: 1_500 })
+      }).toPass({ timeout: 15_000 })
+      await deleteItem.click()
       const dialog = page.getByRole('alertdialog').or(page.getByRole('dialog'))
       await expect(dialog).toBeVisible()
       await dialog.getByRole('button', { name: 'Delete ticket' }).click()
