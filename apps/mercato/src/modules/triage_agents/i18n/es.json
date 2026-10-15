@@ -1,4 +1,7 @@
 {
+  "triage_agents.awaitingDecision.countLabel": "{count} esperan tu decisión",
+  "triage_agents.awaitingDecision.menu": "Pendiente de decisión",
+  "triage_agents.awaitingDecision.preset": "Pendiente de decisión",
   "triage_agents.card.attempt": "Attempt {attempt}",
   "triage_agents.card.category": "Category",
   "triage_agents.card.classificationKept": "Se mantuvo la clasificación del agente; no se aplicó la clasificación de la IA.",
@@ -49,6 +52,8 @@
   "triage_agents.match.not_found": "not found",
   "triage_agents.match.single_reservation": "only reservation",
   "triage_agents.queue.column": "AI",
+  "triage_agents.queue.decisionFilter.awaiting": "Pendiente de decisión",
+  "triage_agents.queue.decisionFilter.label": "Decisión de IA",
   "triage_agents.queue.filter": "AI status",
   "triage_agents.rerun.cancel": "Cancelar",
   "triage_agents.rerun.supersedeConfirm": "Rechazar y volver a ejecutar",

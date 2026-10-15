@@ -35,7 +35,23 @@ export const injectionTable: ModuleInjectionTable = {
   ],
   'data-table:tickets.ticket:toolbar': [
     {
+      widgetId: 'triage_agents.injection.awaiting-decision-preset',
+      priority: 60,
+    },
+    {
       widgetId: 'triage_agents.injection.triage-scenario-presets',
+      priority: 40,
+    },
+  ],
+  'menu:sidebar:main': [
+    {
+      widgetId: 'triage_agents.injection.awaiting-decision-menu',
+      priority: 50,
+    },
+  ],
+  'backend:nav:badges': [
+    {
+      widgetId: 'triage_agents.injection.awaiting-decision-nav-badge',
       priority: 40,
     },
   ],

@@ -1,4 +1,7 @@
 {
+  "triage_agents.awaitingDecision.countLabel": "{count} czeka na Twoją decyzję",
+  "triage_agents.awaitingDecision.menu": "Czeka na decyzję",
+  "triage_agents.awaitingDecision.preset": "Czeka na decyzję",
   "triage_agents.card.attempt": "Attempt {attempt}",
   "triage_agents.card.category": "Category",
   "triage_agents.card.classificationKept": "Zachowano klasyfikację konsultanta; klasyfikacja AI nie została zastosowana.",
@@ -49,6 +52,8 @@
   "triage_agents.match.not_found": "not found",
   "triage_agents.match.single_reservation": "only reservation",
   "triage_agents.queue.column": "AI",
+  "triage_agents.queue.decisionFilter.awaiting": "Czeka na decyzję",
+  "triage_agents.queue.decisionFilter.label": "Decyzja AI",
   "triage_agents.queue.filter": "AI status",
   "triage_agents.rerun.cancel": "Anuluj",
   "triage_agents.rerun.supersedeConfirm": "Odrzuć i uruchom ponownie",

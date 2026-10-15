@@ -93,3 +93,9 @@ export const SUPPORT_CONSULTANT_HIDDEN_SIDEBAR_ITEMS = [
 ] as const
 
 export const DEMO_CONSULTANT_DEFAULT_EMAIL = 'consultant@acme.example'
+
+export const AWAITING_DECISION_FILTER_ID = 'triageDecision'
+export const AWAITING_DECISION_FILTER_VALUE = 'awaiting'
+export const AWAITING_DECISION_HREF = `/backend/tickets?filter.${AWAITING_DECISION_FILTER_ID}=${AWAITING_DECISION_FILTER_VALUE}`
+export const AWAITING_DECISION_FEATURES = ['triage_agents.view', 'agent_orchestrator.proposals.dispose'] as const
+export const AWAITING_DECISION_MAX_TICKETS = 200

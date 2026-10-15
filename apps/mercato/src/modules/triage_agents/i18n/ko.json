@@ -1,4 +1,7 @@
 {
+  "triage_agents.awaitingDecision.countLabel": "{count}건이 결정을 기다리는 중",
+  "triage_agents.awaitingDecision.menu": "결정 대기 중",
+  "triage_agents.awaitingDecision.preset": "결정 대기 중",
   "triage_agents.card.attempt": "Attempt {attempt}",
   "triage_agents.card.category": "Category",
   "triage_agents.card.classificationKept": "상담원의 분류를 유지했으며 AI 분류는 적용되지 않았습니다.",
@@ -49,6 +52,8 @@
   "triage_agents.match.not_found": "not found",
   "triage_agents.match.single_reservation": "only reservation",
   "triage_agents.queue.column": "AI",
+  "triage_agents.queue.decisionFilter.awaiting": "결정 대기 중",
+  "triage_agents.queue.decisionFilter.label": "AI 결정",
   "triage_agents.queue.filter": "AI status",
   "triage_agents.rerun.cancel": "취소",
   "triage_agents.rerun.supersedeConfirm": "거부 후 다시 실행",
