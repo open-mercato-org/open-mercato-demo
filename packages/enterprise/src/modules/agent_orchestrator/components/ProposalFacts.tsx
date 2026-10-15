@@ -8,8 +8,10 @@ import {
   deriveFactsFromInput,
   deriveProposedFields,
   deriveReasoning,
+  formatFactValues,
   resolveDeclaredFacts,
   type FactSources,
+  type FactValue,
   type ResolvedFact,
 } from './proposalFactsData'
 
@@ -25,15 +27,22 @@ import {
 export function FactsGrid({
   facts,
   sources,
+  values,
   className,
 }: {
   facts?: AgentFactView[]
   sources: FactSources
+  /** Facts already resolved server-side (`decision_context.facts`); when set, `facts`/`sources` are ignored. */
+  values?: FactValue[]
   className?: string
 }) {
   const locale = useLocale()
-  const declared = facts && facts.length > 0 ? resolveDeclaredFacts(facts, sources, locale) : []
-  const rows = declared.length > 0 ? declared : deriveFactsFromInput(sources.input, locale)
+  const declared = !values && facts && facts.length > 0 ? resolveDeclaredFacts(facts, sources, locale) : []
+  const rows = values
+    ? formatFactValues(values, locale)
+    : declared.length > 0
+      ? declared
+      : deriveFactsFromInput(sources.input, locale)
   if (rows.length === 0) return null
   return (
     <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', className)}>

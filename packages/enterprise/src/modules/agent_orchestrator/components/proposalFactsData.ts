@@ -55,6 +55,42 @@ export function formatFactValue(value: unknown, format?: AgentFactView['format']
   return null
 }
 
+/**
+ * A fact resolved to its raw primitive value, before locale formatting — the shape
+ * the proposals API serves in `decision_context.facts` so a viewer without access
+ * to the run or the agent registry still gets the decision basis.
+ */
+export type FactValue = {
+  label: string
+  value: string | number | boolean
+  format: AgentFactView['format'] | null
+}
+
+function asFactPrimitive(value: unknown, format: AgentFactView['format'] | null): string | number | boolean | null {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return null
+  return formatFactValue(value, format ?? undefined) == null ? null : value
+}
+
+/** Raw values of the agent's declared facts; entries whose path resolves to nothing are dropped. */
+export function resolveDeclaredFactValues(facts: AgentFactView[], sources: FactSources): FactValue[] {
+  return facts
+    .map((fact): FactValue | null => {
+      const format = fact.format ?? null
+      const value = asFactPrimitive(resolvePath(sources[fact.source], fact.path), format)
+      return value == null ? null : { label: fact.label, value, format }
+    })
+    .filter((fact): fact is FactValue => !!fact)
+}
+
+export function formatFactValues(facts: FactValue[], locale?: string): ResolvedFact[] {
+  return facts
+    .map((fact): ResolvedFact | null => {
+      const value = formatFactValue(fact.value, fact.format ?? undefined, locale)
+      return value == null ? null : { label: fact.label, value }
+    })
+    .filter((fact): fact is ResolvedFact => !!fact)
+}
+
 /** Resolve the agent's declared facts; entries whose path resolves to nothing are dropped. */
 export function resolveDeclaredFacts(facts: AgentFactView[], sources: FactSources, locale?: string): ResolvedFact[] {
   return facts
@@ -153,24 +189,28 @@ const MAX_DERIVED_FACTS = 6
  * (upstream agents' findings passed through workflow input mapping) summarize
  * to "action · confidence"; other shapes are skipped.
  */
-export function deriveFactsFromInput(input: unknown, locale?: string): ResolvedFact[] {
+export function deriveFactValuesFromInput(input: unknown): FactValue[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
-  const facts: ResolvedFact[] = []
+  const facts: FactValue[] = []
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (facts.length >= MAX_DERIVED_FACTS) break
     if (value == null) continue
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      const formatted = formatFactValue(value, undefined, locale)
-      if (formatted != null) facts.push({ label: humanizeKey(key), value: formatted })
+    const primitive = asFactPrimitive(value, null)
+    if (primitive != null) {
+      facts.push({ label: humanizeKey(key), value: primitive, format: null })
       continue
     }
     const proposalShaped = asProposalShaped(value)
     if (proposalShaped) {
       const summary = summarizeProposalShaped(proposalShaped)
-      if (summary) facts.push({ label: humanizeKey(key), value: summary })
+      if (summary) facts.push({ label: humanizeKey(key), value: summary, format: null })
     }
   }
   return facts
+}
+
+export function deriveFactsFromInput(input: unknown, locale?: string): ResolvedFact[] {
+  return formatFactValues(deriveFactValuesFromInput(input), locale)
 }
 
 /**

@@ -31,7 +31,17 @@ import { FactsGrid } from './ProposalFacts'
 import { OPTIONAL_REQUEST_INIT } from './optionalRequest'
 import { proposalCaseStatusLabelKey, proposalCaseStatusVariant } from './proposalCaseStatus'
 import { humanizeKey } from './proposalFactsData'
-import { formatConfidence, mapAgent, mapProposal, mapRun, type AgentFactView, type ProposalView, type RunView } from './types'
+import {
+  formatConfidence,
+  mapAgent,
+  mapDecisionContext,
+  mapProposal,
+  mapRun,
+  type AgentFactView,
+  type ProposalView,
+  type RunView,
+} from './types'
+import type { FactValue } from './proposalFactsData'
 import { actionEditsToActions, deriveActionEdits, reassembleProposalPayload, type ActionEdit, type EditableActionField } from './proposalEdit'
 import {
   buildDisposeBody,
@@ -59,7 +69,9 @@ import {
  * the same dispose endpoint as the Caseload — optimistic-locked on `updatedAt`,
  * conflicts surfaced on the shared conflict bar — and an edit sends the FULL
  * re-assembled envelope. Without `agent_orchestrator.proposals.dispose` the card is
- * read-only.
+ * read-only. The agent label, facts and long-text hints come from the proposal
+ * read's `decision_context` block (needs only `proposals.view`); without it the
+ * card falls back to `GET /agents` + `GET /runs?id=`.
  */
 
 export type ProposalDecisionCardDisposeResult = {
@@ -122,6 +134,7 @@ export function ProposalDecisionCard({
   const [run, setRun] = React.useState<RunView | null>(null)
   const [agentLabel, setAgentLabel] = React.useState<string | null>(null)
   const [agentFacts, setAgentFacts] = React.useState<AgentFactView[] | undefined>(undefined)
+  const [factValues, setFactValues] = React.useState<FactValue[] | undefined>(undefined)
   const [schemaLongText, setSchemaLongText] = React.useState<Set<string>>(() => new Set())
   const [featureCanDispose, setFeatureCanDispose] = React.useState(false)
   const [selectedOptionId, setSelectedOptionId] = React.useState<string | null>(null)
@@ -172,7 +185,8 @@ export function ProposalDecisionCard({
           `/api/agent_orchestrator/proposals?id=${encodeURIComponent(proposalId)}`,
         )
         if (cancelled) return
-        const mapped = Array.isArray(data.items) && data.items[0] ? mapProposal(data.items[0]) : null
+        const row = Array.isArray(data.items) && data.items[0] ? data.items[0] : null
+        const mapped = row ? mapProposal(row) : null
         if (!mapped) {
           setState('notFound')
           return
@@ -182,6 +196,16 @@ export function ProposalDecisionCard({
         setMode('view')
         setEdits(null)
         setState('ready')
+        const decisionContext = mapDecisionContext(row?.decision_context)
+        if (decisionContext) {
+          setAgentLabel(decisionContext.agentLabel)
+          setFactValues(decisionContext.facts)
+          setAgentFacts(undefined)
+          setSchemaLongText(new Set(decisionContext.longTextFields))
+          setRun(null)
+          return
+        }
+        setFactValues(undefined)
         const [agentsCall, runCall] = await Promise.all([
           apiCall<{ items?: Array<Record<string, unknown>> }>('/api/agent_orchestrator/agents', OPTIONAL_REQUEST_INIT, {
             fallback: { items: [] },
@@ -510,6 +534,7 @@ export function ProposalDecisionCard({
 
         {!compact ? (
           <FactsGrid
+            values={factValues}
             facts={agentFacts}
             sources={{ input: run?.input ?? null, payload: proposal.payload, output: run?.output ?? null }}
           />

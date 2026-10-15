@@ -234,6 +234,30 @@ describe('ProposalDecisionCard', () => {
     expect(JSON.parse((apiCallOrThrow as jest.Mock).mock.calls[0][1].body)).toEqual({ disposition: 'rejected', reason: 'Wrong customer' })
   })
 
+  it('renders facts, label and long text from decision_context without calling the agents or runs endpoints', async () => {
+    mockApi({
+      row: proposalRow({
+        decision_context: {
+          agentLabel: 'Resolution advisor (ctx)',
+          facts: [
+            { label: 'Booking', value: 'TRV-1042', format: null },
+            { label: 'Paid', value: 2750, format: 'number' },
+          ],
+          longTextFields: ['tickets.ticket.reply.body'],
+        },
+      }),
+    })
+    const { container } = renderWithProviders(<ProposalDecisionCard proposalId={PROPOSAL_ID} />, { dict })
+    await screen.findByText('TRV-1042')
+    expect(screen.getByText('Booking')).toBeTruthy()
+    expect(screen.getByText('Paid')).toBeTruthy()
+    expect(container.textContent).toContain('Resolution advisor (ctx)')
+    expect(container.querySelector('[data-long-text-field="body"]')).toBeTruthy()
+    const calledUrls = (apiCall as jest.Mock).mock.calls.map(([url]) => String(url))
+    expect(calledUrls.some((url) => url.startsWith('/api/agent_orchestrator/agents'))).toBe(false)
+    expect(calledUrls.some((url) => url.startsWith('/api/agent_orchestrator/runs'))).toBe(false)
+  })
+
   it('is read-only without agent_orchestrator.proposals.dispose', async () => {
     mockApi({ canDispose: false })
     renderWithProviders(<ProposalDecisionCard proposalId={PROPOSAL_ID} />, { dict })
