@@ -2,6 +2,11 @@ import { z, type ZodTypeAny } from 'zod'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 
+/** Bounds on the additive grounding fields (AO delta spec section F). */
+export const PROPOSAL_CITATION_REF_MAX = 300
+export const PROPOSAL_ACTION_CITATIONS_MAX = 50
+export const PROPOSAL_EVIDENCE_MAX_BYTES = 32 * 1024
+
 /**
  * A single proposed action emitted by a proposal agent. `payload` is shaped
  * per-agent via the agent's `result.schema`; the generic form keeps it open.
@@ -20,6 +25,12 @@ export const proposedActionSchema = z.object({
    * "nobody said".
    */
   risk: z.enum(['low', 'medium', 'high']).optional(),
+  /**
+   * References into the envelope's `evidence.citations[].ref` (or any stable source
+   * ref, e.g. `article@3#S2`) this action is grounded in. Additive; absent means the
+   * agent cited nothing for it.
+   */
+  citations: z.array(z.string().min(1).max(PROPOSAL_CITATION_REF_MAX)).max(PROPOSAL_ACTION_CITATIONS_MAX).optional(),
 })
 export type ProposedAction = z.infer<typeof proposedActionSchema>
 
@@ -61,9 +72,81 @@ export type ProposalOption = z.infer<typeof proposalOptionSchema>
  * Envelope `rationale` explains the option SET; why one option was ranked where it
  * was lives on the option itself.
  */
+/**
+ * Provider strict structured outputs (OpenAI `strict: true`) cannot express an
+ * optional key, so agents emit `null` for "absent". The evidence block accepts that
+ * `null` and normalizes it to an absent key, instead of failing validation and
+ * dropping the whole block. Output types are unchanged.
+ */
+function absentWhenNull<T extends ZodTypeAny>(schema: T) {
+  return schema
+    .nullish()
+    .transform((value): z.output<T> | undefined => (value === null ? undefined : (value as z.output<T> | undefined)))
+}
+
+export const proposalEvidenceCheckSchema = z.object({
+  key: z.string().min(1).max(200),
+  step: absentWhenNull(z.string().min(1).max(200)),
+  passed: z.boolean(),
+  evidence: z.string().max(PROPOSAL_RATIONALE_MAX),
+})
+export type ProposalEvidenceCheck = z.infer<typeof proposalEvidenceCheckSchema>
+
+export const proposalEvidenceCitationSchema = z.object({
+  kind: z.string().min(1).max(100),
+  ref: z.string().min(1).max(PROPOSAL_CITATION_REF_MAX),
+  label: absentWhenNull(z.string().max(PROPOSAL_OPTION_LABEL_MAX)),
+  steps: absentWhenNull(z.array(z.string().min(1).max(200)).max(PROPOSAL_ACTION_CITATIONS_MAX)),
+  href: absentWhenNull(z.string().max(2000)),
+})
+export type ProposalEvidenceCitation = z.infer<typeof proposalEvidenceCitationSchema>
+
+export const proposalEvidenceSegmentSchema = z.object({
+  source: z.enum(['template', 'generated']),
+  ref: absentWhenNull(z.string().min(1).max(PROPOSAL_CITATION_REF_MAX)),
+  text: z.string(),
+})
+export type ProposalEvidenceSegment = z.infer<typeof proposalEvidenceSegmentSchema>
+
+export const proposalEvidenceUncertaintySchema = z.object({
+  code: z.string().min(1).max(100),
+  message: z.string().max(PROPOSAL_RATIONALE_MAX),
+  blocking: absentWhenNull(z.boolean()),
+})
+export type ProposalEvidenceUncertainty = z.infer<typeof proposalEvidenceUncertaintySchema>
+
+function serializedByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value) ?? '').length
+}
+
+/**
+ * What a proposal is grounded in: the checks it ran, the sources it cites, how a
+ * drafted text splits into template and generated segments, and what it is unsure
+ * of. Optional and additive on the envelope; capped at
+ * {@link PROPOSAL_EVIDENCE_MAX_BYTES} serialized, because the payload column is
+ * encrypted and the decision card renders it in full.
+ */
+export const proposalEvidenceSchema = z
+  .object({
+    checks: z.array(proposalEvidenceCheckSchema).max(100).optional(),
+    citations: z.array(proposalEvidenceCitationSchema).max(100).optional(),
+    segments: z.array(proposalEvidenceSegmentSchema).max(200).optional(),
+    uncertainty: z.array(proposalEvidenceUncertaintySchema).max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (serializedByteLength(value) > PROPOSAL_EVIDENCE_MAX_BYTES) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `[internal] proposal evidence exceeds ${PROPOSAL_EVIDENCE_MAX_BYTES} bytes`,
+      })
+    }
+  })
+export type ProposalEvidence = z.infer<typeof proposalEvidenceSchema>
+
 export const agentProposalSchema = z.object({
   options: z.array(proposalOptionSchema).max(PROPOSAL_OPTIONS_MAX),
   rationale: z.string().max(PROPOSAL_RATIONALE_MAX).optional(),
+  evidence: proposalEvidenceSchema.optional(),
 })
 export type AgentProposalPayload = z.infer<typeof agentProposalSchema>
 
@@ -197,6 +280,8 @@ export const runListQuerySchema = z
     resultKind: z.enum(['research', 'proposal', 'artifact']).optional(),
     /** The agent's DECLARED type (`agent_runs.agent_type`); runs without one never match. */
     agentType: agentTypeSchema.optional(),
+    /** Runs one workflow instance caused (process flow trace); scoped like every other filter. */
+    workflowInstanceId: z.string().uuid().optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */
     flagged: z.coerce.boolean().optional(),
     // Trace facets + window (trace-eval overlay).
@@ -1289,7 +1374,16 @@ export const processMilestonesReachedSchema = z.array(processMilestoneReachedSch
 export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), ref: z.string().min(1).max(200).optional() }),
   z.object({ kind: z.literal('event'), ref: z.string().min(1).max(255) }),
-  z.object({ kind: z.literal('manual'), ref: z.string().min(1).max(200).optional() }),
+  z.object({
+    kind: z.literal('manual'),
+    ref: z.string().min(1).max(200).optional(),
+    /**
+     * Set when this execution re-runs an earlier one (`POST /executions/:id/rerun`).
+     * Stored here rather than in a column because the module's migrations are
+     * squash-only; read it through `readRerunOfExecutionId`.
+     */
+    rerunOfExecutionId: z.string().uuid().optional(),
+  }),
   /** System entries with no declared trigger (backfills, fixtures, replays). */
   z.object({ kind: z.literal('system'), ref: z.string().min(1).max(200).optional() }),
 ])
@@ -1476,6 +1570,8 @@ export const processExecutionListQuerySchema = z
     scope: processListScopeSchema.optional(),
     status: processInstanceStatusSchema.optional(),
     subjectType: z.string().max(100).optional(),
+    /** The business record an execution is about; pairs with `subjectType`. */
+    subjectId: z.string().max(200).optional(),
     sourceEntityType: z.string().max(100).optional(),
     sourceEntityId: z.string().uuid().optional(),
     q: z.string().max(200).optional(),

@@ -239,7 +239,7 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 1. Caller (playground, `INVOKE_AGENT` workflow step, or trace adapter) invokes `agentRuntime.run()`; `persistence.ts` opens an `AgentRun` and resolves the caller ACL.
 2. Runtime executes (in-process object mode or OpenCode); `guardrailService` runs input/output checks; the typed `AgentResult` is validated against the agent's OUTCOME schema.
 3. For `proposal`, an `AgentProposal` is persisted; `DispositionService` gates it through the auto-approval POLICY (`lib/disposition/autoApprovalPolicy.ts`). **Confidence is evidence, not authorization** — the policy answers the tenant switch, the guardrail verdict, trace completeness and the leading option's action risk BEFORE it looks at the model's own opinion, and the `auto_disposition_block` column records which gate held a threshold-clearing proposal (every value of it is rendered — map it through `autoDispositionBlockMessageKey`, never a literal comparison). The tenant switch and risk ceiling are edited at **Settings → Auto-approval** (`backend/settings/auto-approval/`, `PUT /api/agent_orchestrator/auto-approval/settings`, stored as the `agent_orchestrator/auto_approval_policy` module config); an unset policy is `enabled` with ceiling `medium`. Trace completeness is `≥1 AgentSpan` for the run, so **a runner MUST persist its trace before returning** — the disposition reads it the instant `run()` resolves, and a run with no span holds every proposal it raises.
-4. On approval, the effector (`executeProposal.ts`) maps proposed actions → commands and runs them via the command bus; the workflow instance resumes via `proposal.ready`.
+4. On approval the workflow resumes via `proposal.ready` (signal also carries `selectedOptionId`); its effector step is `EXECUTE_FUNCTION agent_orchestrator.execute_approved_proposal` (`lib/runtime/executeApprovedProposal.ts`), which runs the SELECTED option through `executeProposal` (`stopOnFailure`, catalogue ∩ `allowedActions`, `UPDATE_ENTITY` gate), is idempotent via a claim span (`proposal-execution:<id>`) on the proposing run, and emits `proposal.executed`. Tests run agents offline with `OM_AI_PROVIDER=scripted` + `OM_AI_SCRIPTED_FIXTURES_DIR` (`<agentId>/<canonicalInputKey>.json`; production needs `OM_AI_SCRIPTED_ALLOW=1`).
 
 ## File Agents — the `agents/<id>/` convention
 
@@ -281,7 +281,7 @@ agents/<agent_id>/
 | `/agents`, `/agents/:id` | GET | `agents.view` | List registry / agent detail (incl. resolved skills; `tokenUsage` for file agents) |
 | `/agents/:id/run` | POST | `agents.run` | **Playground / evals / diagnostics ONLY.** An engineering primitive: one agent, synchronously, with no retry, waits, signals, cancellation or durable lifecycle. Never a business-execution API — a caller coupled to an agent id cannot be refactored around |
 | `/agents/:id/metrics` | GET | `trace.view` | KPI tiles |
-| `/runs`, `/runs/:id` | GET | `trace.view` | Run list/detail (filters: agent, status, eval-fail, low-confidence) |
+| `/runs`, `/runs/:id` | GET | `trace.view` | Run list/detail (filters: agent, status, eval-fail, low-confidence, `workflowInstanceId`) |
 | `/proposals` | GET | `proposals.view` | Caseload list |
 | `/proposals/:id/dispose` | POST | `proposals.dispose` | Human verdict (approve/edit/reject + reason); optimistic-locked on `updated_at` |
 | `/trace/ingest` | POST | HMAC (no user auth) | Runtime-adapter trace webhook; idempotent on (runtime, externalRunId) |
@@ -292,6 +292,8 @@ agents/<agent_id>/
 | `/processes`, `/processes/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
 | `/processes/:id/executions` | POST | `processes.run` | **The external contract.** Start one business execution — 403 without a declared `manual` trigger; always async, `202 { executionId }` |
 | `/executions`, `/executions/:id` | GET | `processes.view` | The ONE business-execution surface: derived status, milestones reached, proposals, outcome |
+| `/executions/:id/flow` | GET | `trace.view` | Process Flow Trace: ordered, REDACTED nodes assembled on read (`lib/trace/flowAssembler.ts`) |
+| `/executions/:id/rerun` | POST | `processes.run` | New execution with the original input; `409 pending_proposal` unless `{ supersede: true }` |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
 
@@ -318,11 +320,18 @@ Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATIO
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.executed`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 
 `overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `processes` + `processes/:id` (running executions — the read model), `processes/definitions` + `processes/definitions/:id` (definition authoring), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
+
+### Embeddable decision card + flow trace (spec `2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md`)
+
+- Other modules embed `components/ProposalDecisionCard` (`{ proposalId, fieldOverrides?, onDisposed?, … }`) and `components/ProcessFlowTrace` (`{ executionId, attempts?, … }`) by deep import. The card disposes through `/proposals/:id/dispose` only (lock header + `surfaceRecordConflict`); edits send the WHOLE envelope via `reassembleProposalPayload`. Long text: `fieldOverrides` or `.describe('format:long_text')`. The card's label/facts/long-text hints come from `decision_context` on `GET /proposals?id=` (`lib/proposals/decisionContext.ts`, needs only `proposals.view`; secrets redacted) — keep it there, never require `agents.view`/`trace.view` for the decision basis.
+- Citation sources resolve client-side via `registerCitationResolver(kind, fn)` (`components/citationResolvers.ts`); an unknown kind or a throwing resolver falls back to label + `href`.
+- Flow summaries are redacted BY CONSTRUCTION (tool name + arg keys + result size); never add values. The effector node is the `proposal-execution:<id>` claim span.
+- A re-run is linked through `process_instances.triggered_by.rerunOfExecutionId` — no column, because migrations are squash-only. Read it with `readRerunOfExecutionId`.
 
 ### Operator tags + registry filters
 

@@ -48,6 +48,13 @@ import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
 import { buildWebSearchEngine } from './lib/webSearch/registry'
 import type { DispositionService } from './lib/disposition/dispositionService'
 import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
+import { registerWorkflowFunctions } from '@open-mercato/core/modules/workflows/lib/workflow-function-registry'
+import {
+  EXECUTE_APPROVED_PROPOSAL_DI_KEY,
+  EXECUTE_APPROVED_PROPOSAL_FUNCTION,
+  EXECUTE_APPROVED_PROPOSAL_LABEL_KEY,
+  createExecuteApprovedProposalFunction,
+} from './lib/runtime/executeApprovedProposal'
 import {
   agentDispositionWorkInboxSource,
   AGENT_ORCHESTRATOR_MODULE_ID,
@@ -66,6 +73,13 @@ import {
 // auto-approve boundary is not touched.
 registerWorkInboxSources([
   { moduleId: AGENT_ORCHESTRATOR_MODULE_ID, sources: [agentDispositionWorkInboxSource] },
+])
+
+// EXECUTE_FUNCTION picker descriptor for the approved-proposal effector (AO delta
+// spec section E). Top-level for the same reason as the inbox source above: the
+// picker reads a process-wide registry, and the DI value below is what runs.
+registerWorkflowFunctions([
+  { name: EXECUTE_APPROVED_PROPOSAL_FUNCTION, labelKey: EXECUTE_APPROVED_PROPOSAL_LABEL_KEY },
 ])
 
 export function register(container: AppContainer) {
@@ -88,6 +102,7 @@ export function register(container: AppContainer) {
     AgentDelegationGrant: asValue(AgentDelegationGrant),
     ProcessDefinition: asValue(ProcessDefinition),
     ProcessInstance: asValue(ProcessInstance),
+    [EXECUTE_APPROVED_PROPOSAL_DI_KEY]: asValue(createExecuteApprovedProposalFunction(container)),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound

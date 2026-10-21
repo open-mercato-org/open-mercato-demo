@@ -11,6 +11,7 @@ export type ResumeWorkflowForProposalInput = {
   workflowInstanceId: string
   stepId: string | null
   disposition: AgentProposalDisposition
+  selectedOptionId?: string | null
   proposalPayload?: unknown
   tenantId: string
   organizationId: string
@@ -65,6 +66,7 @@ export async function resumeWorkflowForProposal(
         proposalId: input.proposalId,
         stepId: input.stepId,
         disposition: input.disposition,
+        selectedOptionId: input.selectedOptionId ?? null,
         proposalPayload: input.proposalPayload,
       },
       userId: input.userId ?? undefined,

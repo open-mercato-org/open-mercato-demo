@@ -1,0 +1,49 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.ticket.subject": { "not": { "matches": "\\b[A-Z]{3}[0-9]{3}\\b" } },
+    "tools.reservations.list_for_customer.reservations.length": { "gte": 2 }
+  },
+  "steps": [
+    { "toolCalls": [{ "toolName": "tickets.get_ticket", "input": { "ticketId": "{{input.ticketId}}" } }] },
+    {
+      "toolCalls": [
+        { "toolName": "reservations.list_for_customer", "input": { "email": "{{tools.tickets.get_ticket.ticket.requesterEmail}}" } }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "customer": { "personId": "{{tools.reservations.list_for_customer.customerPersonId}}", "match": "confirmed" },
+      "reservation": {
+        "reservationId": null,
+        "bookingNumber": null,
+        "match": "ambiguous",
+        "candidates": [
+          {
+            "reservationId": "{{tools.reservations.list_for_customer.reservations.0.id}}",
+            "bookingNumber": "{{tools.reservations.list_for_customer.reservations.0.bookingNumber}}",
+            "label": "{{tools.reservations.list_for_customer.reservations.0.destination}}, {{tools.reservations.list_for_customer.reservations.0.hotelName}}",
+            "daysToDeparture": "{{tools.reservations.list_for_customer.reservations.0.daysToDeparture}}"
+          },
+          {
+            "reservationId": "{{tools.reservations.list_for_customer.reservations.1.id}}",
+            "bookingNumber": "{{tools.reservations.list_for_customer.reservations.1.bookingNumber}}",
+            "label": "{{tools.reservations.list_for_customer.reservations.1.destination}}, {{tools.reservations.list_for_customer.reservations.1.hotelName}}",
+            "daysToDeparture": "{{tools.reservations.list_for_customer.reservations.1.daysToDeparture}}"
+          }
+        ],
+        "departureDate": null,
+        "daysToDeparture": null
+      },
+      "evidence": [
+        { "source": "crm", "quote": "The sender has {{tools.reservations.list_for_customer.reservations.length}} reservations and the message names none of them." }
+      ],
+      "uncertainty": [
+        { "code": "reservation_ambiguous", "message": "The customer has several reservations and the message does not say which one it is about.", "blocking": true }
+      ],
+      "confidence": 0.55
+    }
+  },
+  "usage": { "inputTokens": 1490, "outputTokens": 260 }
+}

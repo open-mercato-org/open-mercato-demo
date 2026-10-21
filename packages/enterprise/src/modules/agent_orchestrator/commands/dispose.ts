@@ -358,6 +358,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         workflowInstanceId: proposal.workflowInstanceId,
         stepId: proposal.stepId ?? null,
         disposition: proposal.disposition,
+        selectedOptionId: proposal.selectedOptionId ?? null,
         proposalPayload: proposal.payload,
         tenantId: proposal.tenantId,
         organizationId: proposal.organizationId,

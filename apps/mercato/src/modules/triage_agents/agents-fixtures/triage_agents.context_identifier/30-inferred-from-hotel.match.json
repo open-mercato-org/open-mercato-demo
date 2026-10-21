@@ -1,0 +1,39 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.ticket.subject": { "not": { "matches": "\\b[A-Z]{3}[0-9]{3}\\b" } },
+    "tools.tickets.get_ticket.articles.0.body": { "contains": "Hotel Aurora" },
+    "tools.reservations.list_for_customer.reservations.0.hotelName": "Hotel Aurora",
+    "tools.reservations.list_for_customer.reservations.length": { "gte": 2 }
+  },
+  "steps": [
+    { "toolCalls": [{ "toolName": "tickets.get_ticket", "input": { "ticketId": "{{input.ticketId}}" } }] },
+    {
+      "toolCalls": [
+        { "toolName": "reservations.list_for_customer", "input": { "email": "{{tools.tickets.get_ticket.ticket.requesterEmail}}" } }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "customer": { "personId": "{{tools.reservations.list_for_customer.customerPersonId}}", "match": "confirmed" },
+      "reservation": {
+        "reservationId": "{{tools.reservations.list_for_customer.reservations.0.id}}",
+        "bookingNumber": "{{tools.reservations.list_for_customer.reservations.0.bookingNumber}}",
+        "match": "inferred_from_content",
+        "candidates": [],
+        "departureDate": "{{tools.reservations.list_for_customer.reservations.0.departureDate}}",
+        "daysToDeparture": "{{tools.reservations.list_for_customer.reservations.0.daysToDeparture}}"
+      },
+      "evidence": [
+        { "source": "ticket", "quote": "a quiet part of Hotel Aurora" },
+        { "source": "crm", "quote": "Of the sender's reservations only {{tools.reservations.list_for_customer.reservations.0.bookingNumber}} is at Hotel Aurora." }
+      ],
+      "uncertainty": [
+        { "code": "reservation_inferred", "message": "The reservation was inferred from the hotel named in the message, not from a booking number.", "blocking": false }
+      ],
+      "confidence": 0.82
+    }
+  },
+  "usage": { "inputTokens": 1510, "outputTokens": 230 }
+}

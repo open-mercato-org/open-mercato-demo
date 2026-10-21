@@ -8,6 +8,7 @@ import { normalizeAgentTags } from '../data/agentTags'
 import { proposalPayloadSource, deriveEnvelopeConfidence, normalizeProposalEnvelope } from '../data/proposalEnvelope'
 import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
+import type { FactValue } from './proposalFactsData'
 
 export type ProposalView = {
   id: string
@@ -831,4 +832,37 @@ export function formatWaitMinutes(minutes: number | null | undefined): string | 
   const days = Math.floor(hours / 24)
   const restHours = hours % 24
   return restHours ? `${days}d ${restHours}h` : `${days}d`
+}
+
+export type DecisionContextView = {
+  agentLabel: string | null
+  facts: FactValue[]
+  longTextFields: string[]
+}
+
+const FACT_FORMATS: ReadonlySet<string> = new Set(['text', 'number', 'boolean', 'percent'])
+
+function mapFactValue(row: unknown): FactValue | null {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null
+  const entry = row as Record<string, unknown>
+  const label = asString(entry.label)
+  const value = entry.value
+  if (!label || (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) return null
+  const format = typeof entry.format === 'string' && FACT_FORMATS.has(entry.format)
+    ? (entry.format as FactValue['format'])
+    : null
+  return { label, value, format }
+}
+
+/** Reads the `decision_context` block of a single-proposal read; null when the server sent none. */
+export function mapDecisionContext(raw: unknown): DecisionContextView | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const block = raw as Record<string, unknown>
+  const facts = Array.isArray(block.facts)
+    ? block.facts.map(mapFactValue).filter((fact): fact is FactValue => !!fact)
+    : []
+  const longTextFields = Array.isArray(block.longTextFields)
+    ? block.longTextFields.filter((key): key is string => typeof key === 'string')
+    : []
+  return { agentLabel: asString(block.agentLabel), facts, longTextFields }
 }

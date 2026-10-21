@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+import { withScriptedLlmContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/scripted-context'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
@@ -18,12 +19,15 @@ import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { withRunContext } from './runContext'
+import { canonicalInputKey } from '../eval/canonicalInputKey'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
   captureNativeRunTrace,
+  extractStepToolCalls,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
+  type RawStepToolEvent,
 } from './nativeTraceCapture'
 import {
   AgentGuardrailBlockedError,
@@ -214,15 +218,7 @@ export class NativeAgentRunner {
     const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
     const recordStep = async (event: unknown): Promise<void> => {
-      const raw = event as {
-        toolCalls?: Array<{
-          toolName?: string
-          args?: unknown
-          result?: unknown
-          experimental_toToolResultError?: { code?: string; message?: string }
-          startTime?: number
-          endTime?: number
-        }>
+      const raw = event as RawStepToolEvent & {
         finishReason?: string
         usage?: { inputTokens?: number; outputTokens?: number }
         response?: { modelId?: string }
@@ -234,23 +230,7 @@ export class NativeAgentRunner {
           inputTokens: raw.usage?.inputTokens ?? 0,
           outputTokens: raw.usage?.outputTokens ?? 0,
         },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
-          toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
-          ...(toolCall.experimental_toToolResultError
-            ? {
-                error: {
-                  code: String(toolCall.experimental_toToolResultError.code ?? 'unknown'),
-                  message: String(toolCall.experimental_toToolResultError.message ?? ''),
-                },
-              }
-            : {}),
-          durationMs:
-            typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
-              ? toolCall.endTime - toolCall.startTime
-              : 0,
-        })),
+        toolCalls: extractStepToolCalls(raw),
         endedAtMs: Date.now(),
       })
     }
@@ -390,7 +370,7 @@ export class NativeAgentRunner {
       // inherits the eval tag instead of being recorded as production traffic.
       const modelExecution = withRunContext(runId, () =>
         runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await runAiAgentObject({
+          const objectResult = await withScriptedLlmContext({ agentId, inputKey: canonicalInputKey(input), input }, () => runAiAgentObject({
             agentId,
             input: typeof input === 'string' ? input : JSON.stringify(input),
             authContext,
@@ -403,7 +383,7 @@ export class NativeAgentRunner {
             // Writes never execute directly (read-only policy + proposal → effector).
             enableTools: true,
             ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
-          })
+          }))
           // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
           if (objectResult.mode === 'stream') {
             return await objectResult.object

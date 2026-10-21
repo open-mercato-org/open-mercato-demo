@@ -36,6 +36,8 @@ import {
 import type { MilestoneStage } from '../../../lib/tasks/milestones'
 import type { ProcessOutcome } from '../../../lib/tasks/outcome'
 import { ProcessOutcomeLink } from '../../../components/ProcessOutcomeLink'
+import { ProcessFlowTrace } from '../../../components/ProcessFlowTrace'
+import { ProposalDecisionCard } from '../../../components/ProposalDecisionCard'
 import {
   mapProcessProjection,
   type ProcessInstanceStatus,
@@ -376,6 +378,8 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const [milestoneStages, setMilestoneStages] = React.useState<MilestoneStage[]>([])
   const [outcome, setOutcome] = React.useState<{ value: ProcessOutcome; href: string | null } | null>(null)
   const [degraded, setDegraded] = React.useState(false)
+  const [attempts, setAttempts] = React.useState<string[]>([])
+  const [reloadToken, setReloadToken] = React.useState(0)
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
   const [isLoading, setIsLoading] = React.useState(true)
@@ -449,6 +453,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
         lastActivityAt: proposalRows[proposalRows.length - 1]?.updatedAt ?? null,
       }
       setProjection(header ?? fallbackHeader)
+      setAttempts(readAttempts(headerCall.result?.execution))
       setDegraded(!header)
       setProposals(proposalRows)
 
@@ -487,7 +492,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
     return () => {
       cancelled = true
     }
-  }, [workflowInstanceId, t])
+  }, [workflowInstanceId, t, reloadToken])
 
   const steps = React.useMemo(
     () => buildSteps(proposals, runsById, t),
@@ -730,6 +735,16 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           ) : null}
         </section>
 
+        {oldestPendingProposalId ? (
+          <div className="mt-6">
+            <ProposalDecisionCard
+              key={oldestPendingProposalId}
+              proposalId={oldestPendingProposalId}
+              onDisposed={() => setReloadToken((value) => value + 1)}
+            />
+          </div>
+        ) : null}
+
         {/* Split view: activity trace ↔ selected step detail */}
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -819,9 +834,29 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             />
           ) : null}
         </div>
+
+        <div className="mt-6 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <ProcessFlowTrace
+            executionId={attempts[attempts.length - 1] ?? workflowInstanceId}
+            attempts={attempts.length > 1 ? attempts : undefined}
+            showAttemptSelector={attempts.length > 1}
+            allowRerun
+            onRerunStarted={(result) => router.push(`/backend/processes/${encodeURIComponent(result.executionId)}`)}
+          />
+        </div>
       </PageBody>
     </Page>
   )
+}
+
+function readAttempts(execution: Record<string, unknown> | undefined): string[] {
+  if (!execution || typeof execution.id !== 'string') return []
+  const triggeredBy = execution.triggeredBy ?? execution.triggered_by
+  const rerunOf =
+    triggeredBy && typeof triggeredBy === 'object' && !Array.isArray(triggeredBy)
+      ? (triggeredBy as Record<string, unknown>).rerunOfExecutionId
+      : null
+  return typeof rerunOf === 'string' ? [rerunOf, execution.id] : [execution.id]
 }
 
 function HeaderFact({ label, value }: { label: string; value: string }) {

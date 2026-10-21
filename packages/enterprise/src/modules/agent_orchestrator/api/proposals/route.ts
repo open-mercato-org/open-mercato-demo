@@ -1,11 +1,16 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AgentProposal } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
 } from '../openapi'
+import { attachProposalDecisionContext } from '../../lib/proposals/decisionContext'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'proposals-route' })
 
 // The entity-part must PascalCase to the MikroORM class name (`AgentProposal`)
 // so the query engine resolves it to the real table `agent_proposals` via ORM
@@ -82,6 +87,21 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       return filters
     },
   },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      if (!ctx.query.id) return
+      const items = Array.isArray((payload as { items?: unknown }).items)
+        ? (payload as { items: Array<Record<string, unknown>> }).items
+        : []
+      if (items.length !== 1) return
+      try {
+        const em = (ctx.container.resolve('em') as EntityManager).fork()
+        await attachProposalDecisionContext(em, items[0])
+      } catch (err) {
+        logger.warn('Could not resolve the proposal decision context', { err })
+      }
+    },
+  },
 })
 
 export const GET = crud.GET
@@ -103,6 +123,20 @@ const proposalListItemSchema = z.object({
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  decision_context: z
+    .object({
+      agentLabel: z.string().nullable(),
+      facts: z.array(
+        z.object({
+          label: z.string(),
+          value: z.union([z.string(), z.number(), z.boolean()]),
+          format: z.enum(['text', 'number', 'boolean', 'percent']).nullable(),
+        }),
+      ),
+      longTextFields: z.array(z.string()),
+    })
+    .optional()
+    .describe('Decision basis (agent label, resolved facts, long-text fields) — only on a single-proposal read (`?id=`).'),
 })
 
 export const openApi = createAgentOrchestratorCrudOpenApi({

@@ -1,0 +1,55 @@
+{
+  "match": {
+    "tools.tickets.get_ticket.articles.0.body": {
+      "contains": "change the date"
+    },
+    "tools.knowledge_articles.get_article.found": true
+  },
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "toolName": "tickets.get_ticket",
+          "input": {
+            "ticketId": "{{input.ticketId}}"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "toolName": "knowledge_articles.get_article",
+          "input": {
+            "key": "booking.changes.date_change"
+          }
+        }
+      ]
+    }
+  ],
+  "object": {
+    "kind": "research",
+    "data": {
+      "categoryKey": "booking",
+      "subcategoryKey": "booking.changes",
+      "topicKey": "booking.changes.date_change",
+      "topicVersion": "{{tools.knowledge_articles.get_article.version}}",
+      "summary": "The customer asks whether the travel date of the trip can be changed but does not say which booking.",
+      "intent": "change the travel date",
+      "urgencySignal": "none",
+      "urgencyEvidence": null,
+      "automationLevel": "{{tools.knowledge_articles.get_article.article.automationLevel}}",
+      "extracted": {
+        "refundAmount": null,
+        "bankAccount": null,
+        "paymentDate": null
+      },
+      "uncertainty": [],
+      "confidence": 0.8
+    }
+  },
+  "usage": {
+    "inputTokens": 2100,
+    "outputTokens": 240
+  }
+}

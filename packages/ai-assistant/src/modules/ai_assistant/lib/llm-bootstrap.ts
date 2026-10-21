@@ -20,6 +20,7 @@ import { createAnthropicAdapter } from './llm-adapters/anthropic'
 import { createAzureAdapter } from './llm-adapters/azure'
 import { createGoogleAdapter } from './llm-adapters/google'
 import { createOpenAICompatibleProvider } from './llm-adapters/openai'
+import { createScriptedAdapter, isScriptedLlmProviderEnabled } from './llm-adapters/scripted'
 import { OPENAI_COMPATIBLE_PRESETS } from './openai-compatible-presets'
 
 const logger = createLogger('ai_assistant')
@@ -62,6 +63,16 @@ export function registerBuiltInLlmProviders(): void {
       llmProviderRegistry.register(createOpenAICompatibleProvider(preset))
     } catch (error) {
       logger.warn('Failed to register OpenAI-compatible preset', { presetId: preset.id, err: error })
+    }
+  }
+
+  // The deterministic test/rehearsal provider is registered only when it was
+  // explicitly selected, so it never appears among a real deployment's choices.
+  if (isScriptedLlmProviderEnabled(process.env)) {
+    try {
+      llmProviderRegistry.register(createScriptedAdapter())
+    } catch (error) {
+      logger.warn('Failed to register scripted adapter', { err: error })
     }
   }
 

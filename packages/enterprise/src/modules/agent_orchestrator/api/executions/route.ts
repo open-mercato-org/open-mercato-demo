@@ -114,6 +114,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof processExecutionListQuer
       if (query.processDefinitionId) filters.process_definition_id = { $eq: query.processDefinitionId }
       if (query.status) filters.status = { $eq: query.status }
       if (query.subjectType) filters.subject_type = { $eq: query.subjectType }
+      if (query.subjectId) filters.subject_id = { $eq: query.subjectId }
       if (query.sourceEntityType) filters.source_entity_type = { $eq: query.sourceEntityType }
       if (query.sourceEntityId) filters.source_entity_id = { $eq: query.sourceEntityId }
       // Matches the subject reference AND the id the list actually shows; every

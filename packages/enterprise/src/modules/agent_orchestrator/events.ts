@@ -17,6 +17,9 @@ const events = [
   { id: 'agent_orchestrator.proposal.created', label: 'Agent Proposal Created', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.proposal.disposed', label: 'Agent Proposal Disposed', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.proposal.ready', label: 'Agent Proposal Ready', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
+  // Effector echo of the `execute_approved_proposal` workflow function: which
+  // commands the approved option ran and how each ended (flow trace + live UI).
+  { id: 'agent_orchestrator.proposal.executed', label: 'Agent Proposal Executed', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
   // Trace + eval overlay. run.ingested is clientBroadcast for the same
   // live-refresh reason as run.completed (spans/tool-calls arrive post-run).
   { id: 'agent_orchestrator.run.ingested', label: 'Agent Run Ingested', entity: 'run', category: 'lifecycle', clientBroadcast: true },
